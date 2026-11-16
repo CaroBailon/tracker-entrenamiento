@@ -1,0 +1,51 @@
+const { ctx, hojas } = require('./simulacion');
+const assert = (c, m) => { if (!c) { console.error('FALLA:', m); process.exitCode = 1; } else console.log('OK  ', m); };
+const post = (cuerpo) => ctx.doPost({ postData: { contents: JSON.stringify(cuerpo) } });
+const get = (p) => ctx.doGet({ parameter: p });
+
+ctx.setup();
+assert(!hojas['Hoja 1'], 'setup borra la hoja vacía');
+assert(hojas.Ejercicios.datos.length === 20, 'catálogo con 19 ejercicios + encabezado');
+assert(hojas.Rutinas.datos.length === 21, 'rutinas con 20 filas + encabezado');
+ctx.setup();
+assert(hojas.Ejercicios.datos.length === 20, 'correr setup dos veces no duplica datos');
+
+const T = 'clave-de-prueba-123';
+assert(get({ token: 'mala' }).ok === false, 'GET con clave incorrecta se rechaza');
+assert(post({ token: 'mala', accion: 'agua', ml: 250 }).ok === false, 'POST con clave incorrecta se rechaza');
+
+let r = get({ token: T });
+assert(r.ok && r.ejercicios.length === 19 && r.rutinas.length === 20, 'GET inicio devuelve catálogo y rutinas');
+assert(r.config.meta_agua_ml === 2000 && r.agua_hoy_ml === 0, 'config y agua de hoy en 0');
+
+r = post({ token: T, accion: 'agua', ml: 250 }); r = post({ token: T, accion: 'agua', ml: 500 });
+assert(r.ok && r.agua_hoy_ml === 750, 'agua suma 250 + 500 = 750');
+assert(post({ token: T, accion: 'agua', ml: -5 }).ok === false, 'agua negativa se rechaza');
+
+const hoy = get({ token: T }).hoy;
+r = post({ token: T, accion: 'sesion',
+  sesion: { fecha: hoy, rutina_id: 'piernas_1', duracion_min: 65, energia_1a5: 4, esfuerzo_1a10: 7, sueno_horas: 7.5, notas: 'Bien' },
+  series: [
+    { ejercicio_id: 'hip_thrust_1p', serie_n: 1, lado: 'D', reps: 9, peso_kg: 8 },
+    { ejercicio_id: 'hip_thrust_1p', serie_n: 1, lado: 'I', reps: 8, peso_kg: 8 },
+    { ejercicio_id: 'curl_femoral_pelota', serie_n: 1, reps: 13 },
+    { ejercicio_id: 'elevacion_talones', serie_n: 1, lado: 'D', reps: 11, peso_kg: 6 },
+  ] });
+assert(r.ok && r.sesion_id === 1 && r.series_guardadas === 4, 'sesión con 4 series guardada');
+const s = hojas.Series.datos;
+assert(s[1][10] === 72 && s[1][11] === 10.4, 'hip thrust: volumen 9×8 = 72 kg y 1RM Epley 8×(1+9/30) = 10,4 kg');
+assert(s[2][5] === 'I', 'lado izquierdo registrado en ejercicio unilateral');
+assert(s[4][5] === '', 'ejercicio no unilateral ignora el lado');
+assert(s[3][10] === '' && s[3][6] === 13, 'curl con pelota: repeticiones sin volumen (peso corporal)');
+
+r = post({ token: T, accion: 'sesion', sesion: { rutina_id: 'bici', duracion_min: 45, energia_1a5: 3 },
+  series: [{ ejercicio_id: 'bici_estatica', minutos: 45, distancia_km: 18.5 }] });
+assert(r.ok && r.sesion_id === 2 && hojas.Series.datos[5][8] === 45, 'sesión de bici: 45 minutos y 18,5 km');
+
+assert(post({ token: T, accion: 'sesion', sesion: { energia_1a5: 9 }, series: [] }).ok === false, 'energía 9 (fuera de 1 a 5) se rechaza');
+assert(post({ token: T, accion: 'sesion', sesion: {}, series: [{ ejercicio_id: 'no_existe', reps: 5 }] }).ok === false, 'ejercicio desconocido se rechaza');
+assert(hojas.Sesiones.datos.length === 3, 'los envíos rechazados no dejan filas a medias');
+
+r = get({ token: T });
+assert(r.ultimas['hip_thrust_1p_D'].reps === 9 && r.ultimas['hip_thrust_1p_I'].reps === 8, 'últimas marcas separadas por lado');
+assert(r.ultimas['bici_estatica'].minutos === 45 && r.agua_hoy_ml === 750, 'última bici y agua de hoy correctas');

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f766e">
+  <meta name="description" content="Tracker de mi rutina de ejercicios en casa: series, progreso, cómo me siento y agua.">
+  <title>Mi entrenamiento</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icono-192.png">
+  <link rel="apple-touch-icon" href="icono-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+  <!-- Pantalla 1: configuración (solo la primera vez) -->
+  <main id="pantalla-config" class="pantalla" hidden>
+    <h1>Configuración</h1>
+    <p class="ayuda">Pegá la URL de la app web de Apps Script y tu clave. Se guardan solo en este celular.</p>
+    <form id="form-config">
+      <label>URL de la app web
+        <input id="cfg-url" type="url" placeholder="https://script.google.com/macros/s/.../exec" required autocomplete="off">
+      </label>
+      <label>Clave
+        <input id="cfg-token" type="password" required autocomplete="off">
+      </label>
+      <button type="submit" class="btn btn-principal">Probar y guardar</button>
+    </form>
+    <p id="cfg-estado" class="estado" role="status"></p>
+    <button id="cfg-volver" class="btn btn-link" type="button" hidden>← Volver</button>
+  </main>
+
+  <!-- Pantalla 2: inicio -->
+  <main id="pantalla-inicio" class="pantalla" hidden>
+    <header class="encabezado">
+      <h1>Hola, Caro</h1>
+      <p id="fecha-hoy" class="sub"></p>
+    </header>
+
+    <div id="aviso-pendientes" class="aviso" hidden></div>
+    <div id="aviso-borrador" class="aviso" hidden></div>
+
+    <section class="tarjeta" aria-labelledby="titulo-agua">
+      <h2 id="titulo-agua">💧 Agua</h2>
+      <p class="agua-grande"><span id="agua-vasos">0</span> <span class="sub">de <span id="agua-meta-vasos">8</span> vasos</span></p>
+      <div class="barra" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="agua-barra"><div id="agua-relleno"></div></div>
+      <p id="agua-ml" class="sub"></p>
+      <div class="fila-botones">
+        <button id="btn-vaso" class="btn btn-agua" type="button">+1 vaso</button>
+        <button id="btn-botella" class="btn btn-agua" type="button">+1 botella</button>
+      </div>
+    </section>
+
+    <section aria-labelledby="titulo-rutinas">
+      <h2 id="titulo-rutinas">¿Qué entrenás hoy?</h2>
+      <div id="lista-rutinas" class="lista-rutinas"></div>
+    </section>
+
+    <footer class="pie">
+      <span id="estado-sync" class="sub"></span>
+      <button id="btn-config" class="btn btn-link" type="button">Configuración</button>
+    </footer>
+  </main>
+
+  <!-- Pantalla 3: sesión -->
+  <main id="pantalla-sesion" class="pantalla" hidden>
+    <header class="encabezado">
+      <button id="btn-salir-sesion" class="btn btn-link" type="button">← Inicio</button>
+      <h1 id="sesion-titulo"></h1>
+      <p id="sesion-inicio" class="sub"></p>
+    </header>
+    <div id="sesion-ejercicios"></div>
+
+    <section class="tarjeta" aria-labelledby="titulo-sensaciones">
+      <h2 id="titulo-sensaciones">¿Cómo te sentiste?</h2>
+      <p class="etiqueta">Energía (1 = sin energía, 5 = a full)</p>
+      <div id="sel-energia" class="selector" role="radiogroup" aria-label="Energía"></div>
+      <p class="etiqueta">Esfuerzo (1 = muy fácil, 10 = al límite)</p>
+      <div id="sel-esfuerzo" class="selector" role="radiogroup" aria-label="Esfuerzo"></div>
+      <div class="dos-col">
+        <label>Horas de sueño
+          <input id="in-sueno" type="number" inputmode="decimal" min="0" max="14" step="0.5">
+        </label>
+        <label>Duración (min)
+          <input id="in-duracion" type="number" inputmode="numeric" min="1" max="300">
+        </label>
+      </div>
+      <label>Notas
+        <textarea id="in-notas" rows="2" maxlength="500" placeholder="Ej.: me molestó la rodilla izquierda"></textarea>
+      </label>
+    </section>
+
+    <p id="sesion-error" class="error" role="alert"></p>
+    <button id="btn-guardar" class="btn btn-principal" type="button">Guardar sesión</button>
+    <button id="btn-descartar" class="btn btn-link btn-peligro" type="button">Descartar sesión</button>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>
