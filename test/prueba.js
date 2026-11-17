@@ -49,3 +49,9 @@ assert(hojas.Sesiones.datos.length === 3, 'los envíos rechazados no dejan filas
 r = get({ token: T });
 assert(r.ultimas['hip_thrust_1p_D'].reps === 9 && r.ultimas['hip_thrust_1p_I'].reps === 8, 'últimas marcas separadas por lado');
 assert(r.ultimas['bici_estatica'].minutos === 45 && r.agua_hoy_ml === 750, 'última bici y agua de hoy correctas');
+
+r = post({ token: T, accion: 'objetivo', rutina_id: 'piernas_1', ejercicio_id: 'hip_thrust_1p', series_objetivo: 3, reps_objetivo: 10 });
+const fila = hojas.Rutinas.datos.find((f) => f[0] === 'piernas_1' && f[4] === 'hip_thrust_1p');
+assert(r.ok && fila[6] === 10 && fila[5] === 3, 'objetivo de hip thrust cambiado a 3 × 10');
+assert(post({ token: T, accion: 'objetivo', rutina_id: 'piernas_1', ejercicio_id: 'hip_thrust_1p', reps_objetivo: 500 }).ok === false, 'objetivo fuera de rango se rechaza');
+assert(post({ token: T, accion: 'objetivo', rutina_id: 'superior', ejercicio_id: 'hip_thrust_1p', reps_objetivo: 10 }).ok === false, 'ejercicio que no está en la rutina se rechaza');

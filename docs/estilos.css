@@ -108,3 +108,10 @@ input:focus, textarea:focus, button:focus-visible { outline: 3px solid var(--pri
   max-width: calc(100% - 32px); box-shadow: 0 6px 20px rgba(0,0,0,.2); z-index: 10;
 }
 [hidden] { display: none !important; }
+
+/* Editar objetivo */
+.btn-inline { min-height: 32px; padding: 2px 4px; font-size: .9rem; }
+.btn-chico { min-height: 44px; padding: 8px 14px; background: var(--principal); color: #fff; }
+.editor-objetivo { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin: 6px 0; }
+.editor-objetivo label { flex: 1 0 70px; margin: 0; }
+.ayuda.chica { font-size: .85rem; margin: 0 0 4px; }

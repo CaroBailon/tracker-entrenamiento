@@ -35,6 +35,13 @@ try:
         s.nth(0).locator('[data-campo=peso_kg]').fill('8'); s.nth(0).locator('[data-campo=reps]').fill('9')
         s.nth(1).locator('[data-campo=peso_kg]').fill('8'); s.nth(1).locator('[data-campo=reps]').fill('8')
         pg.locator('.ejercicio').nth(4).locator('[data-campo=reps]').first.fill('13')
+        ok(s.nth(2).locator('[data-campo=reps]').input_value() == '9' and s.nth(4).locator('[data-campo=reps]').input_value() == '9', 'autocompleta reps del lado derecho hacia abajo')
+        ok(s.nth(3).locator('[data-campo=reps]').input_value() == '8' and s.nth(5).locator('[data-campo=reps]').input_value() == '8', 'el lado izquierdo mantiene sus propias reps')
+        s.nth(4).locator('[data-campo=reps]').fill('')
+        ok(s.nth(4).locator('[data-campo=reps]').input_value() == '', 'se puede borrar una serie no hecha')
+        s.nth(0).locator('[data-campo=peso_kg]').fill('9')
+        ok(s.nth(1).locator('[data-campo=peso_kg]').input_value() == '8' and s.nth(2).locator('[data-campo=peso_kg]').input_value() == '9', 'el peso se copia solo a las series no tocadas a mano')
+        s.nth(0).locator('[data-campo=peso_kg]').fill('8')
         pg.click('#btn-guardar'); ok('energía' in pg.inner_text('#sesion-error'), 'pide energía y esfuerzo antes de guardar')
         pg.reload(); pg.wait_for_timeout(500)
         ok(pg.is_visible('#aviso-borrador'), 'tras recargar ofrece continuar la sesión')
@@ -43,13 +50,18 @@ try:
         pg.click('[data-sel=energia][data-valor="4"]'); pg.click('[data-sel=esfuerzo][data-valor="7"]'); pg.fill('#in-sueno', '7.5')
         pg.click('#btn-guardar'); pg.wait_for_selector('#pantalla-inicio:not([hidden])'); pg.wait_for_timeout(600)
         h = hojas(); ser = h['Series'][1:]
-        ok(len(ser) == 3 and h['Sesiones'][1][4] == 4 and h['Sesiones'][1][5] == 7, 'sesión con 3 series, energía 4 y esfuerzo 7')
+        ok(len(ser) == 8 and h['Sesiones'][1][4] == 4 and h['Sesiones'][1][5] == 7, 'sesión con 8 series (5 hip thrust + 3 curl), energía 4 y esfuerzo 7')
         ok(ser[0][5] == 'D' and ser[1][5] == 'I' and ser[0][10] == 72, 'lados D/I y volumen 72 kg')
         ok('hecha hoy' in pg.inner_text('[data-rutina="piernas_1"]'), 'piernas 1 marcada como hecha hoy')
         # la vez pasada
         pg.click('[data-rutina="piernas_1"]'); pg.wait_for_timeout(200)
         ok('der 8 kg × 9' in pg.inner_text('.ref >> nth=0'), 'muestra la vez pasada por lado')
         ok(pg.locator('[data-campo=peso_kg]').first.input_value() == '8', 'precarga el peso de la vez pasada')
+        pg.click('[data-obj-editar="hip_thrust_1p"]'); pg.fill('#obj-reps', '10'); pg.click('[data-obj-guardar="hip_thrust_1p"]'); pg.wait_for_timeout(500)
+        fila = [f for f in hojas()['Rutinas'] if f[0] == 'piernas_1' and f[4] == 'hip_thrust_1p'][0]
+        ok(fila[6] == 10 and '3 × 10' in pg.inner_text('.ejercicio >> nth=0'), 'objetivo editable: 3 × 10 en pantalla y en la planilla')
+        pg.click('[data-obj-editar="hip_thrust_1p"]'); pg.fill('#obj-series', '4'); pg.click('[data-obj-guardar="hip_thrust_1p"]'); pg.wait_for_timeout(500)
+        ok(pg.locator('.ejercicio').first.locator('.serie:not(.serie-titulos)').count() == 8, 'con 4 series aparecen 8 filas (4 por lado)')
         pg.screenshot(path='../captura_sesion.png', full_page=True)
         pg.evaluate("document.getElementById('btn-descartar').click()"); pg.wait_for_timeout(300)
         # sin conexión: bici

@@ -205,12 +205,13 @@
   // Pantalla de sesión
   // ---------------------------------------------------------------------------
   let b = null; // borrador de la sesión en curso
+  let editando = null; // ejercicio cuyo objetivo se está editando
 
   function empezar(rutinaId) {
     const actual = leer(K.borrador, null);
     if (actual && actual.rutina_id !== rutinaId && !confirm('Tenés otra sesión sin terminar. ¿Descartarla y empezar esta?')) return;
     b = actual && actual.rutina_id === rutinaId ? actual : {
-      rutina_id: rutinaId, inicio: Date.now(), valores: {}, extras: {},
+      rutina_id: rutinaId, inicio: Date.now(), valores: {}, extras: {}, manual: {},
       energia: null, esfuerzo: null, sueno: hechoHoy().sueno, duracion: null, notas: '',
     };
     guardar(K.borrador, b);
@@ -254,9 +255,17 @@
       for (let n = 1; n <= nSeries; n++) {
         lados.forEach((l) => { filas += filaSerie(ej, item, n, l); });
       }
-      return '<section class="tarjeta ejercicio">' +
-        '<h2>' + esc(ej.nombre) + '</h2>' +
-        '<p class="sub">' + esc(ej.grupo_muscular) + ' · objetivo ' + objetivo + '</p>' +
+      const editor = editando === ej.ejercicio_id
+        ? '<div class="editor-objetivo">' + (ej.tipo_medida === 'tiempo'
+            ? '<label>Minutos <input id="obj-min" type="number" inputmode="numeric" min="1" max="300" value="' + item.minutos_objetivo + '"></label>'
+            : '<label>Series <input id="obj-series" type="number" inputmode="numeric" min="1" max="10" value="' + item.series_objetivo + '"></label>' +
+              '<label>Reps <input id="obj-reps" type="number" inputmode="numeric" min="1" max="100" value="' + item.reps_objetivo + '"></label>') +
+          '<button class="btn btn-chico" type="button" data-obj-guardar="' + ej.ejercicio_id + '">Guardar</button>' +
+          '<button class="btn btn-link" type="button" data-obj-cancelar="1">Cancelar</button></div>'
+        : '<p class="sub">' + esc(ej.grupo_muscular) + ' · objetivo ' + objetivo +
+          ' <button class="btn btn-link btn-inline" type="button" data-obj-editar="' + ej.ejercicio_id + '" aria-label="Editar objetivo de ' + esc(ej.nombre) + '">✏️ editar</button></p>';
+      return '<section class="tarjeta ejercicio" data-ej="' + ej.ejercicio_id + '">' +
+        '<h2>' + esc(ej.nombre) + '</h2>' + editor +
         (ref ? '<p class="ref">La vez pasada: ' + ref + '</p>' : '') +
         '<div class="series"><div class="serie serie-titulos"><span class="serie-nombre"></span>' + columnas(ej) + '</div>' + filas + '</div>' +
         (ej.tipo_medida !== 'tiempo' ? '<button class="btn btn-link" type="button" data-extra="' + ej.ejercicio_id + '">+ agregar serie</button>' : '') +
@@ -344,6 +353,27 @@
     return out;
   }
 
+  async function guardarObjetivo(ejId) {
+    const item = datos.rutinas.find((r) => r.rutina_id === b.rutina_id && r.ejercicio_id === ejId);
+    const cambio = $('obj-min')
+      ? { minutos_objetivo: num($('obj-min').value) }
+      : { series_objetivo: num($('obj-series').value), reps_objetivo: num($('obj-reps').value) };
+    const valido = Object.entries(cambio).every(([k, v]) => v != null && v >= 1 && v <= (k === 'series_objetivo' ? 10 : k === 'reps_objetivo' ? 100 : 300));
+    if (!valido) { aviso('Revisá el objetivo: series de 1 a 10 y reps de 1 a 100'); return; }
+    const antes = Object.assign({}, item);
+    Object.assign(item, cambio);           // se ve al instante
+    guardar(K.datos, datos);
+    editando = null;
+    pintarSesion();
+    try {
+      const r = await enviar(Object.assign({ accion: 'objetivo', rutina_id: b.rutina_id, ejercicio_id: ejId }, cambio));
+      aviso(r ? 'Objetivo actualizado ✓' : 'Sin conexión: el objetivo se guarda después');
+    } catch (e) {
+      Object.assign(item, antes); guardar(K.datos, datos); pintarSesion();
+      aviso('No se guardó el objetivo: ' + e.message);
+    }
+  }
+
   async function guardarSesion() {
     const series = seriesParaEnviar();
     const err = $('sesion-error');
@@ -427,6 +457,9 @@
     else if (t.id === 'btn-continuar') { b = leer(K.borrador, null); if (b && rutina(b.rutina_id)) { pintarSesion(); mostrar('pantalla-sesion'); } }
     else if (t.id === 'btn-reintentar') actualizarDatos();
     else if (t.dataset.extra) { b.extras[t.dataset.extra] = (b.extras[t.dataset.extra] || 0) + 1; guardar(K.borrador, b); pintarSesion(); }
+    else if (t.dataset.objEditar) { editando = t.dataset.objEditar; pintarSesion(); const x = $('obj-reps') || $('obj-min'); if (x) x.focus(); }
+    else if (t.dataset.objCancelar) { editando = null; pintarSesion(); }
+    else if (t.dataset.objGuardar) guardarObjetivo(t.dataset.objGuardar);
     else if (t.dataset.sel) { b[t.dataset.sel] = Number(t.dataset.valor); guardar(K.borrador, b); pintarSelector('sel-' + t.dataset.sel, t.dataset.sel === 'energia' ? 5 : 10, t.dataset.sel); }
   });
 
@@ -434,7 +467,23 @@
   $('sesion-ejercicios').addEventListener('input', (ev) => {
     const i = ev.target;
     if (!i.dataset.k) return;
-    b.valores[i.dataset.k] = Object.assign(b.valores[i.dataset.k] || {}, { [i.dataset.campo]: i.value });
+    const campo = i.dataset.campo;
+    b.valores[i.dataset.k] = Object.assign(b.valores[i.dataset.k] || {}, { [campo]: i.value });
+    b.manual = b.manual || {};
+    b.manual[i.dataset.k + '|' + campo] = true;
+    // Lo escrito se copia a las series siguientes que todavía no se tocaron a mano.
+    // El peso va a todas; las reps de un ejercicio a una pierna, solo al mismo lado (un lado puede rendir menos).
+    if (campo === 'peso_kg' || campo === 'reps') {
+      const lado = i.dataset.k.split('|')[2];
+      const todos = Array.from(i.closest('.ejercicio').querySelectorAll('input[data-campo="' + campo + '"]'));
+      todos.slice(todos.indexOf(i) + 1).forEach((otro) => {
+        const k = otro.dataset.k;
+        if (b.manual[k + '|' + campo]) return;
+        if (campo === 'reps' && k.split('|')[2] !== lado) return;
+        otro.value = i.value;
+        b.valores[k] = Object.assign(b.valores[k] || {}, { [campo]: i.value });
+      });
+    }
     guardar(K.borrador, b);
   });
   [['in-sueno', 'sueno'], ['in-duracion', 'duracion'], ['in-notas', 'notas']].forEach(([id, campo]) => {

@@ -142,6 +142,7 @@ function doGet(e) {
  * POST con cuerpo JSON (enviado como text/plain para evitar el preflight de CORS):
  *   { token, accion: 'sesion', sesion: {...}, series: [...] }
  *   { token, accion: 'agua', ml }
+ *   { token, accion: 'objetivo', rutina_id, ejercicio_id, series_objetivo, reps_objetivo, minutos_objetivo }
  */
 function doPost(e) {
   const candado = LockService.getScriptLock();
@@ -152,6 +153,7 @@ function doPost(e) {
     const zona = valorConfig_('zona_horaria');
     if (cuerpo.accion === 'agua') return json_(guardarAgua_(cuerpo, zona));
     if (cuerpo.accion === 'sesion') return json_(guardarSesion_(cuerpo, zona));
+    if (cuerpo.accion === 'objetivo') return json_(guardarObjetivo_(cuerpo));
     throw new Error('Acción desconocida');
   } catch (err) {
     return json_({ ok: false, error: err.message });
@@ -214,6 +216,27 @@ function guardarSesion_(cuerpo, zona) {
     h.getRange(h.getLastRow() + 1, 1, filas.length, filas[0].length).setValues(filas);
   }
   return { ok: true, sesion_id: sesionId, series_guardadas: filas.length };
+}
+
+// Cambia el objetivo de un ejercicio dentro de una rutina (por ejemplo, pasar de 3 × 9 a 3 × 10 en la semana 7)
+function guardarObjetivo_(c) {
+  rango_(c.series_objetivo, 1, 10, 'series objetivo');
+  rango_(c.reps_objetivo, 1, 100, 'reps objetivo');
+  rango_(c.minutos_objetivo, 1, 300, 'minutos objetivo');
+  const h = hoja_('Rutinas');
+  const valores = h.getDataRange().getValues();
+  const col = {};
+  valores[0].forEach(function (nombre, i) { col[nombre] = i; });
+  for (let i = 1; i < valores.length; i++) {
+    const fila = valores[i];
+    if (fila[col.rutina_id] !== c.rutina_id || fila[col.ejercicio_id] !== c.ejercicio_id) continue;
+    ['series_objetivo', 'reps_objetivo', 'minutos_objetivo'].forEach(function (k) {
+      if (vacioANull_(c[k]) != null) fila[col[k]] = Number(c[k]);
+    });
+    h.getRange(i + 1, 1, 1, fila.length).setValues([fila]);
+    return { ok: true };
+  }
+  throw new Error('No encontré ese ejercicio en la rutina');
 }
 
 // Última vez que se hizo cada ejercicio: la app la muestra como referencia ("la vez pasada: 8 kg × 11")
