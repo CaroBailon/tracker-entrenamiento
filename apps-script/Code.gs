@@ -148,6 +148,8 @@ function doGet(e) {
  *   { token, accion: 'sesion', sesion: {...}, series: [...] }
  *   { token, accion: 'agua', ml }
  *   { token, accion: 'objetivo', rutina_id, ejercicio_id, series_objetivo, reps_objetivo, minutos_objetivo }
+ *   { token, accion: 'cambiar_fecha', sesion_id, fecha }   → corrige la fecha de una sesión y de sus series
+ *   { token, accion: 'borrar_sesion', sesion_id }          → borra una sesión cargada por error y sus series
  */
 function doPost(e) {
   const candado = LockService.getScriptLock();
@@ -159,6 +161,8 @@ function doPost(e) {
     if (cuerpo.accion === 'agua') return json_(guardarAgua_(cuerpo, zona));
     if (cuerpo.accion === 'sesion') return json_(guardarSesion_(cuerpo, zona));
     if (cuerpo.accion === 'objetivo') return json_(guardarObjetivo_(cuerpo));
+    if (cuerpo.accion === 'cambiar_fecha') return json_(cambiarFecha_(cuerpo, zona));
+    if (cuerpo.accion === 'borrar_sesion') return json_(borrarSesion_(cuerpo));
     throw new Error('Acción desconocida');
   } catch (err) {
     return json_({ ok: false, error: err.message });
@@ -254,6 +258,43 @@ function borrarRegistros() {
     if (h.getLastRow() > 1) h.deleteRows(2, h.getLastRow() - 1);
   });
   Logger.log('Listo: se borraron las sesiones, las series y el agua.');
+}
+
+// Corrige la fecha de una sesión (en Sesiones y en todas sus Series, para que nunca queden distintas)
+function cambiarFecha_(c, zona) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(c.fecha || '')) throw new Error('Fecha inválida');
+  if (c.fecha > Utilities.formatDate(new Date(), zona, 'yyyy-MM-dd')) throw new Error('La fecha no puede ser futura');
+  let encontrada = false;
+  ['Sesiones', 'Series'].forEach(function (nombre) {
+    const h = hoja_(nombre);
+    const valores = h.getDataRange().getValues();
+    const iId = valores[0].indexOf('sesion_id'), iFecha = valores[0].indexOf('fecha');
+    for (let i = 1; i < valores.length; i++) {
+      if (Number(valores[i][iId]) !== Number(c.sesion_id)) continue;
+      valores[i][iFecha] = c.fecha;
+      h.getRange(i + 1, 1, 1, valores[i].length).setValues([valores[i]]);
+      if (nombre === 'Sesiones') encontrada = true;
+    }
+  });
+  if (!encontrada) throw new Error('No encontré esa sesión');
+  return { ok: true };
+}
+
+// Borra una sesión y sus series. Se recorre de abajo hacia arriba para que borrar una fila no corra las demás.
+function borrarSesion_(c) {
+  let encontrada = false;
+  ['Series', 'Sesiones'].forEach(function (nombre) {
+    const h = hoja_(nombre);
+    const valores = h.getDataRange().getValues();
+    const iId = valores[0].indexOf('sesion_id');
+    for (let i = valores.length - 1; i >= 1; i--) {
+      if (Number(valores[i][iId]) !== Number(c.sesion_id)) continue;
+      h.deleteRows(i + 1, 1);
+      if (nombre === 'Sesiones') encontrada = true;
+    }
+  });
+  if (!encontrada) throw new Error('No encontré esa sesión');
+  return { ok: true };
 }
 
 // Cambia el objetivo de un ejercicio dentro de una rutina (por ejemplo, pasar de 3 × 9 a 3 × 10 en la semana 7)

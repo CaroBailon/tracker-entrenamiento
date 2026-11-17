@@ -443,6 +443,19 @@
     }
   }
 
+  // Correcciones: necesitan conexión (no van a la cola), porque modifican datos que ya están en la planilla
+  async function corregirSesion(cuerpo, mensajeOk) {
+    try {
+      await apiPost(cuerpo);
+      aviso(mensajeOk);
+      borrar(K.hoy); // las marcas de "hecha hoy" pueden haber cambiado
+      await abrirHistorial();
+      actualizarDatos();              // la "vez pasada" puede cambiar
+    } catch (err) {
+      aviso(err instanceof ErrorServidor ? 'No se pudo: ' + err.message : 'Sin conexión: probá de nuevo cuando tengas internet');
+    }
+  }
+
   // Lunes de la semana de una fecha yyyy-mm-dd
   function lunes(f) {
     const d = new Date(f + 'T12:00:00Z');
@@ -506,7 +519,11 @@
             '<span class="rutina-nombre">' + esc(nombreRutina(s.rutina_id)) + '</span>' +
             '<span class="sub">' + datosSesion + '</span></summary>' +
             '<ul class="hist-series">' + lineas + '</ul>' +
-            (s.notas ? '<p class="sub">📝 ' + esc(s.notas) + '</p>' : '') + '</details>';
+            (s.notas ? '<p class="sub">📝 ' + esc(s.notas) + '</p>' : '') +
+            '<div class="hist-acciones"><label>Fecha <input type="date" max="' + hoyTexto() + '" value="' + s.fecha + '" id="fecha-' + s.sesion_id + '"></label>' +
+            '<button class="btn btn-chico" type="button" data-cambiar-fecha="' + s.sesion_id + '">Cambiar fecha</button>' +
+            '<button class="btn btn-link btn-peligro" type="button" data-borrar-sesion="' + s.sesion_id + '">🗑 Borrar sesión</button></div>' +
+            '</details>';
         }).join('');
     }).join('');
   }
@@ -554,6 +571,15 @@
     else if (t.id === 'btn-continuar') { b = leer(K.borrador, null); if (b && rutina(b.rutina_id)) { pintarSesion(); mostrar('pantalla-sesion'); } }
     else if (t.id === 'btn-reintentar') actualizarDatos();
     else if (t.dataset.extra) { b.extras[t.dataset.extra] = (b.extras[t.dataset.extra] || 0) + 1; guardar(K.borrador, b); pintarSesion(); }
+    else if (t.dataset.cambiarFecha) {
+      const id = t.dataset.cambiarFecha, fecha = $('fecha-' + id).value;
+      if (!fecha || fecha > hoyTexto()) { aviso('Elegí una fecha válida (no futura)'); return; }
+      corregirSesion({ accion: 'cambiar_fecha', sesion_id: Number(id), fecha: fecha }, 'Fecha corregida ✓');
+    }
+    else if (t.dataset.borrarSesion) {
+      if (!confirm('¿Borrar esta sesión y todas sus series? No se puede deshacer.')) return;
+      corregirSesion({ accion: 'borrar_sesion', sesion_id: Number(t.dataset.borrarSesion) }, 'Sesión borrada');
+    }
     else if (t.dataset.objEditar) { editando = t.dataset.objEditar; pintarSesion(); const x = $('obj-reps') || $('obj-min'); if (x) x.focus(); }
     else if (t.dataset.objCancelar) { editando = null; pintarSesion(); }
     else if (t.dataset.objGuardar) guardarObjetivo(t.dataset.objGuardar);

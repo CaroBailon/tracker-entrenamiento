@@ -83,7 +83,12 @@ try:
         ok('der 8 kg × 9, 9 · izq 8 kg × 8, 8, 8' in pg.inner_text('.hist-sesion >> nth=0') and 'izq 8 kg × 8, 8, 8' in pg.inner_text('.hist-sesion >> nth=0'), 'historial muestra series por lado')
         pg.locator('.hist-sesion summary').nth(1).click(); pg.wait_for_timeout(200)
         ok('6 kg × 11, 11, 11' in pg.inner_text('.hist-sesion >> nth=1'), 'historial muestra la sesión pasada con lo autocompletado')
+        pg.fill('#fecha-' + str(hojas()['Sesiones'][-1][0]), '2026-11-04'); pg.click('[data-cambiar-fecha="' + str(hojas()['Sesiones'][-1][0]) + '"]'); pg.wait_for_timeout(900)
+        ok(str(hojas()['Sesiones'][-1][1]).startswith('2026-11-04') and 'MIÉRCOLES, 4 DE NOVIEMBRE' in pg.inner_text('#hist-lista').upper(), 'cambiar fecha desde el historial')
         pg.screenshot(path='../captura_historial.png', full_page=True)
+        n_antes = len(hojas()['Sesiones'])
+        pg.locator('.hist-sesion summary').nth(1).click(); pg.click('[data-borrar-sesion="' + str(hojas()['Sesiones'][-1][0]) + '"]'); pg.wait_for_timeout(900)
+        ok(len(hojas()['Sesiones']) == n_antes - 1 and pg.locator('.hist-sesion').count() == 1, 'borrar sesión desde el historial')
         pg.evaluate("document.getElementById('hist-volver').click()"); pg.wait_for_timeout(300)
         # sin conexión: bici
         offline['on'] = True
@@ -94,7 +99,7 @@ try:
         offline['on'] = False
         pg.click('#btn-reintentar'); pg.wait_for_timeout(800)
         h = hojas()
-        ok(len(h['Sesiones']) == 4 and h['Series'][-1][8] == 45 and h['Series'][-1][9] == 18.5, 'al volver la conexión se envía: 45 min, 18,5 km')
+        ok(len(h['Sesiones']) == 3 and h['Series'][-1][8] == 45 and h['Series'][-1][9] == 18.5, 'al volver la conexión se envía: 45 min, 18,5 km')
         ok(not pg.is_visible('#aviso-pendientes'), 'cola vacía después de enviar')
         pg.set_viewport_size({'width': 320, 'height': 640}); pg.click('[data-rutina="superior"]')
         ancho = pg.evaluate('document.documentElement.scrollWidth')
