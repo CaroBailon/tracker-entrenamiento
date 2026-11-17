@@ -88,6 +88,7 @@
       datos = await apiInicio();
       guardar(K.datos, datos);
       $('estado-sync').textContent = 'Actualizado ' + horaTexto(Date.now());
+      try { await cargarHistorial(); } catch (e) { /* la semana se ve con lo guardado */ }
     } catch (err) {
       $('estado-sync').textContent = err instanceof ErrorServidor ? 'Error: ' + err.message : 'Sin conexión: mostrando lo último guardado';
     }
@@ -127,6 +128,10 @@
   }
   const rutina = (id) => rutinas().find((r) => r.id === id);
 
+  // Cada tipo de rutina con su ícono, nombre y clase de color (se repite en todas las pantallas)
+  const TIPOS = { fuerza: { icono: '🏋️', nombre: 'Fuerza' }, cardio: { icono: '🚴', nombre: 'Cardio' }, core: { icono: '🧘', nombre: 'Core' } };
+  const tipoDe = (rutinaId) => { const r = rutina(rutinaId); return r ? r.tipo : 'fuerza'; };
+
   // Registro local de lo hecho hoy (para marcar ✓ en el inicio y recordar las horas de sueño)
   function hechoHoy() {
     const h = leer(K.hoy, null);
@@ -139,21 +144,26 @@
   function pintarInicio() {
     $('fecha-hoy').textContent = new Date().toLocaleDateString('es-AR', { timeZone: ZONA, weekday: 'long', day: 'numeric', month: 'long' });
     const nSem = semanaPrograma(hoyTexto());
-    $('semana-hoy').textContent = nSem ? 'Semana ' + nSem + ' del programa' : '';
+    $('semana-hoy').textContent = nSem ? 'Semana ' + nSem : '';
+    pintarSemana();
     pintarAgua();
 
+    // Rutinas: hecha hoy (registro local o historial) y cuándo fue la última vez
+    const hist = leer(K.historial, null);
+    const sesiones = hist ? hist.sesiones : [];
     const hecho = hechoHoy();
-    const etiquetaTipo = { fuerza: 'Fuerza', cardio: 'Cardio', core: 'Core' };
     $('lista-rutinas').innerHTML = rutinas().map((r) => {
       const primero = r.items[0];
-      const detalle = r.tipo === 'fuerza'
-        ? r.items.length + ' ejercicios · ' + primero.series_objetivo + ' series'
-        : primero.minutos_objetivo + ' min';
-      const ok = hecho.rutinas.includes(r.id);
-      return '<button class="rutina' + (ok ? ' hecha' : '') + '" data-rutina="' + r.id + '" type="button">' +
-        '<span class="rutina-tipo">' + (etiquetaTipo[r.tipo] || r.tipo) + '</span>' +
+      const detalle = r.tipo === 'fuerza' ? r.items.length + ' ejercicios · ' + primero.series_objetivo + ' series' : primero.minutos_objetivo + ' min';
+      const ok = hecho.rutinas.includes(r.id) || sesiones.some((x) => x.rutina_id === r.id && x.fecha === hoyTexto());
+      const ultima = sesiones.filter((x) => x.rutina_id === r.id).map((x) => x.fecha).sort().pop();
+      const estado = ok ? '✓ Hecha hoy' : ultima ? 'Última: ' + diaSemanaCorto(ultima) : 'Sin registros';
+      const t = TIPOS[r.tipo] || TIPOS.fuerza;
+      return '<button class="rutina tipo-' + r.tipo + (ok ? ' hecha' : '') + '" data-rutina="' + r.id + '" type="button">' +
+        '<span class="rutina-icono" aria-hidden="true">' + t.icono + '</span>' +
         '<span class="rutina-nombre">' + esc(r.nombre) + '</span>' +
-        '<span class="sub">' + detalle + (ok ? ' · ✓ hecha hoy' : '') + '</span></button>';
+        '<span class="sub">' + detalle + '</span>' +
+        '<span class="rutina-estado">' + estado + '</span></button>';
     }).join('');
 
     const cola = leer(K.cola, []);
@@ -162,13 +172,35 @@
       ? cola.length + (cola.length === 1 ? ' registro sin enviar.' : ' registros sin enviar.') + ' <button class="btn btn-link" id="btn-reintentar" type="button">Enviar ahora</button>'
       : '';
 
-    const b = leer(K.borrador, null);
-    $('aviso-borrador').hidden = !b;
-    if (b) {
-      const r = rutina(b.rutina_id);
-      $('aviso-borrador').innerHTML = 'Tenés una sesión sin terminar: <b>' + esc(r ? r.nombre : b.rutina_id) + '</b>. ' +
-        '<button class="btn btn-link" id="btn-continuar" type="button">Continuar</button>';
+    const bb = leer(K.borrador, null);
+    $('aviso-borrador').hidden = !bb;
+    if (bb) {
+      const r = rutina(bb.rutina_id);
+      $('aviso-borrador').innerHTML = (bb.editar ? 'Estás editando la sesión <b>' : 'Tenés una sesión sin terminar: <b>') + esc(r ? r.nombre : bb.rutina_id) + '</b>' +
+        (bb.editar ? ' del ' + fechaCorta(bb.fecha) : '') + '. <button class="btn btn-link" id="btn-continuar" type="button">Continuar</button>';
     }
+  }
+
+  // "lun 16/11"
+  const diaSemanaCorto = (f) => ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'][new Date(f + 'T12:00:00Z').getUTCDay()] + ' ' + Number(f.slice(8)) + '/' + Number(f.slice(5, 7));
+
+  // Constancia: un círculo por día de la semana actual, lleno si ese día hubo alguna sesión
+  function pintarSemana() {
+    const hist = leer(K.historial, null);
+    const hoy = hoyTexto(), l = lunes(hoy);
+    const fechas = new Set((hist ? hist.sesiones : []).map((x) => x.fecha));
+    hechoHoy().rutinas.length && fechas.add(hoy);
+    const letras = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+    let hechos = 0;
+    $('semana-dias').innerHTML = letras.map((letra, i) => {
+      const f = new Date(Date.parse(l + 'T12:00:00Z') + i * 864e5).toISOString().slice(0, 10);
+      const hecho = fechas.has(f);
+      if (hecho) hechos++;
+      const clase = 'dia' + (hecho ? ' hecho' : '') + (f === hoy ? ' hoy' : '') + (f > hoy ? ' futuro' : '');
+      return '<div class="' + clase + '"><span class="dia-punto">' + (hecho ? '✓' : Number(f.slice(8))) + '</span>' + letra + '</div>';
+    }).join('');
+    const meta = Number(datos.config.meta_dias_semana) || 6;
+    $('semana-cuenta').innerHTML = '<b>' + hechos + '</b> de ' + meta + ' días';
   }
 
   function pintarAgua() {
@@ -181,8 +213,15 @@
     $('agua-vasos').textContent = String(vasos).replace('.', ',');
     $('agua-meta-vasos').textContent = Math.round(meta / vaso);
     $('agua-ml').textContent = ml >= meta ? '¡Meta cumplida! ' + ml + ' ml' : ml + ' de ' + meta + ' ml · te faltan ' + (meta - ml) + ' ml';
-    $('agua-relleno').style.width = pct + '%';
-    $('agua-barra').setAttribute('aria-valuenow', pct);
+    // Un vasito por cada vaso de la meta; el último puede quedar a medio llenar
+    const metaVasos = Math.round(meta / vaso);
+    let html = '';
+    for (let i = 0; i < metaVasos; i++) {
+      const lleno = Math.max(0, Math.min(1, ml / vaso - i));
+      html += '<span class="vasito"><i style="height:' + Math.round(lleno * 100) + '%"></i></span>';
+    }
+    $('agua-vasitos').innerHTML = html;
+    $('agua-vasitos').setAttribute('aria-label', vasos + ' de ' + metaVasos + ' vasos (' + pct + '%)');
     $('btn-vaso').innerHTML = '+1 vaso <small>' + vaso + ' ml</small>';
     $('btn-botella').innerHTML = '+1 botella <small>' + (Number(c.botella_ml) || 500) + ' ml</small>';
   }
@@ -231,8 +270,9 @@
 
   function empezar(rutinaId) {
     const actual = leer(K.borrador, null);
-    if (actual && actual.rutina_id !== rutinaId && !confirm('Tenés otra sesión sin terminar. ¿Descartarla y empezar esta?')) return;
-    b = actual && actual.rutina_id === rutinaId ? actual : {
+    const seguir = actual && actual.rutina_id === rutinaId && !actual.editar;
+    if (actual && !seguir && !confirm(actual.editar ? 'Estás editando otra sesión. ¿Descartar esos cambios?' : 'Tenés otra sesión sin terminar. ¿Descartarla y empezar esta?')) return;
+    b = seguir ? actual : {
       rutina_id: rutinaId, inicio: Date.now(), fecha: hoyTexto(), valores: {}, extras: {}, manual: {},
       energia: null, esfuerzo: null, sueno: hechoHoy().sueno, duracion: null, notas: '',
     };
@@ -242,6 +282,38 @@
   }
 
   const clave = (ej, n, lado) => ej + '|' + n + '|' + lado;
+
+  // Abre una sesión ya guardada en la pantalla de sesión, con todos sus datos, para corregirla
+  function editarSesion(sesionId) {
+    const hist = leer(K.historial, null);
+    const s = hist && hist.sesiones.find((x) => Number(x.sesion_id) === Number(sesionId));
+    if (!s || !rutina(s.rutina_id)) { aviso('No encontré esa sesión: actualizá el historial'); return; }
+    const actual = leer(K.borrador, null);
+    if (actual && !(actual.editar === s.sesion_id) && !confirm('Tenés otra sesión sin terminar. ¿Descartarla y editar esta?')) return;
+    const vacio = (v) => (v === null || v === undefined ? '' : v);
+    b = {
+      rutina_id: s.rutina_id, editar: s.sesion_id, inicio: Date.now(), fecha: s.fecha,
+      valores: {}, extras: {}, manual: {},
+      energia: Number(s.energia_1a5) || null, esfuerzo: Number(s.esfuerzo_1a10) || null,
+      sueno: vacio(s.sueno_horas), duracion: vacio(s.duracion_min), notas: s.notas || '',
+    };
+    const maxSerie = {};
+    s.series.forEach((x) => {
+      const k = clave(x.ejercicio_id, x.serie_n, x.lado || '');
+      b.valores[k] = { reps: vacio(x.reps), peso_kg: vacio(x.peso_kg), minutos: vacio(x.minutos), distancia_km: vacio(x.distancia_km) };
+      // Lo guardado cuenta como escrito a mano: cambiar una serie no pisa las otras
+      ['reps', 'peso_kg', 'minutos'].forEach((c) => { b.manual[k + '|' + c] = true; });
+      maxSerie[x.ejercicio_id] = Math.max(maxSerie[x.ejercicio_id] || 0, Number(x.serie_n));
+    });
+    // Si esa vez hizo más series que el objetivo, se muestran todas
+    rutina(s.rutina_id).items.forEach((item) => {
+      const extra = (maxSerie[item.ejercicio_id] || 0) - (Number(item.series_objetivo) || 1);
+      if (extra > 0) b.extras[item.ejercicio_id] = extra;
+    });
+    guardar(K.borrador, b);
+    pintarSesion();
+    mostrar('pantalla-sesion');
+  }
 
   function ultima(ejId, lado) {
     const u = datos.ultimas || {};
@@ -257,13 +329,20 @@
 
   function pintarSesion() {
     const r = rutina(b.rutina_id);
+    $('pantalla-sesion').className = 'pantalla con-barra tipo-' + r.tipo;
+    $('sesion-tipo').textContent = (TIPOS[r.tipo] || TIPOS.fuerza).icono + ' ' + (TIPOS[r.tipo] || TIPOS.fuerza).nombre;
     $('sesion-titulo').textContent = r.nombre;
+    $('sesion-editando').hidden = !b.editar;
+    $('sesion-editando').textContent = b.editar ? '✏️ Estás editando una sesión ya guardada. Al guardar, los cambios reemplazan lo anterior.' : '';
+    $('btn-guardar').textContent = b.editar ? 'Guardar cambios' : 'Guardar sesión';
+    $('btn-descartar').textContent = b.editar ? 'Cancelar edición' : 'Descartar sesión';
     if (!b.fecha) b.fecha = new Date(b.inicio).toLocaleDateString('en-CA', { timeZone: ZONA });
     $('in-fecha').value = b.fecha;
     $('in-fecha').max = hoyTexto();
-    $('sesion-inicio').textContent = b.fecha === hoyTexto() ? 'Empezaste a las ' + horaTexto(b.inicio) : 'Cargando una sesión pasada';
+    $('sesion-inicio').textContent = b.editar ? '' : b.fecha === hoyTexto() ? 'Empezaste a las ' + horaTexto(b.inicio) : 'Cargando una sesión pasada';
 
-    $('sesion-ejercicios').innerHTML = r.items.map((item) => {
+    const totalEj = r.items.length;
+    $('sesion-ejercicios').innerHTML = r.items.map((item, idx) => {
       const ej = ejercicio(item.ejercicio_id);
       if (!ej) return '';
       const lados = ej.unilateral === 'SI' ? ['D', 'I'] : [''];
@@ -290,7 +369,7 @@
         : '<p class="sub">' + esc(ej.grupo_muscular) + ' · objetivo ' + objetivo +
           ' <button class="btn btn-link btn-inline" type="button" data-obj-editar="' + ej.ejercicio_id + '" aria-label="Editar objetivo de ' + esc(ej.nombre) + '">✏️ editar</button></p>';
       return '<section class="tarjeta ejercicio" data-ej="' + ej.ejercicio_id + '">' +
-        '<h2>' + esc(ej.nombre) + '</h2>' + editor +
+        '<h2>' + (totalEj > 1 ? '<span class="num-ej">' + (idx + 1) + '/' + totalEj + '</span>' : '') + esc(ej.nombre) + '</h2>' + editor +
         (ref ? '<p class="ref">La vez pasada: ' + ref + '</p>' : '') +
         '<div class="series"><div class="serie serie-titulos"><span class="serie-nombre"></span>' + columnas(ej) + '</div>' + filas + '</div>' +
         (ej.tipo_medida !== 'tiempo' ? '<button class="btn btn-link" type="button" data-extra="' + ej.ejercicio_id + '">+ agregar serie</button>' : '') +
@@ -408,7 +487,7 @@
     const r = rutina(b.rutina_id);
     const esHoy = b.fecha === hoyTexto();
     // En una sesión pasada el cronómetro no sirve: la duración queda vacía si no se carga a mano
-    const duracionAuto = r.tipo !== 'fuerza' ? series.reduce((s, x) => s + (x.minutos || 0), 0) : esHoy ? minutosDesdeInicio() : '';
+    const duracionAuto = r.tipo !== 'fuerza' ? series.reduce((s, x) => s + (x.minutos || 0), 0) : esHoy && !b.editar ? minutosDesdeInicio() : '';
     const cuerpo = {
       accion: 'sesion',
       sesion: {
@@ -423,7 +502,23 @@
       series: series,
     };
     const boton = $('btn-guardar');
+    const textoBoton = boton.textContent;
     boton.disabled = true; boton.textContent = 'Guardando…';
+    if (b.editar) {
+      // Editar necesita conexión: reemplaza algo que ya está en la planilla
+      try {
+        await apiPost(Object.assign(cuerpo, { accion: 'editar_sesion', sesion_id: b.editar }));
+        borrar(K.borrador); b = null;
+        aviso('Cambios guardados ✓');
+        await abrirHistorial();
+        actualizarDatos(); // la "vez pasada" puede cambiar
+      } catch (e) {
+        err.textContent = e instanceof ErrorServidor ? 'La planilla no lo aceptó: ' + e.message : 'Sin conexión: para editar necesitás internet. Lo que cambiaste queda guardado acá.';
+      } finally {
+        boton.disabled = false; boton.textContent = textoBoton;
+      }
+      return;
+    }
     try {
       const resp = await enviar(cuerpo);
       if (esHoy) {
@@ -440,24 +535,29 @@
     } catch (e) {
       err.textContent = 'La planilla no la aceptó: ' + e.message;
     } finally {
-      boton.disabled = false; boton.textContent = 'Guardar sesión';
+      boton.disabled = false; boton.textContent = textoBoton;
     }
   }
 
   // ---------------------------------------------------------------------------
   // Pantalla de historial
   // ---------------------------------------------------------------------------
+  async function cargarHistorial() {
+    await vaciarCola(); // así aparece también lo que se cargó sin conexión
+    const r = await fetch(conf.url + '?accion=historial&dias=90&token=' + encodeURIComponent(conf.token));
+    const j = await r.json();
+    if (!j.ok) throw new ErrorServidor(j.error);
+    guardar(K.historial, j);
+    return j;
+  }
+
   async function abrirHistorial() {
     mostrar('pantalla-historial');
     const cache = leer(K.historial, null);
     if (cache) pintarHistorial(cache.sesiones, cache.agua);
     $('hist-estado').textContent = 'Actualizando…';
     try {
-      await vaciarCola(); // así aparece también lo que se cargó sin conexión
-      const r = await fetch(conf.url + '?accion=historial&dias=90&token=' + encodeURIComponent(conf.token));
-      const j = await r.json();
-      if (!j.ok) throw new ErrorServidor(j.error);
-      guardar(K.historial, j);
+      const j = await cargarHistorial();
       pintarHistorial(j.sesiones, j.agua);
       $('hist-estado').textContent = '';
     } catch (err) {
@@ -493,6 +593,13 @@
     return n >= 1 ? n : null;
   }
 
+  // Medida para comparar un ejercicio con la vez anterior: volumen (kg × reps), reps totales o minutos
+  function medidaEjercicio(ej, series) {
+    if (ej.tipo_medida === 'tiempo') return series.reduce((t, x) => t + (Number(x.minutos) || 0), 0);
+    if (ej.tipo_medida === 'reps') return series.reduce((t, x) => t + (Number(x.reps) || 0), 0);
+    return series.reduce((t, x) => t + (Number(x.reps) || 0) * (Number(x.peso_kg) || 0), 0);
+  }
+
   function pintarHistorial(sesiones, agua) {
     agua = agua || {};
     if (!sesiones.length) { $('hist-lista').innerHTML = '<p class="sub">Todavía no hay sesiones cargadas.</p>'; return; }
@@ -501,34 +608,55 @@
     const corta = (f) => new Date(f + 'T12:00:00Z').toLocaleDateString('es-AR', { timeZone: 'UTC', day: 'numeric', month: 'numeric' });
     const n = (v) => String(v).replace('.', ',');
 
-    // Agrupa por semana (de lunes a domingo): semanas de la más nueva a la más vieja,
-    // y dentro de cada semana los días en orden (lunes primero), como se leen en un calendario
-    sesiones = sesiones.slice().sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : a.sesion_id - b.sesion_id));
+    // Progreso: para cada ejercicio de cada sesión, comparación con la vez anterior que se hizo
+    const cronologico = sesiones.slice().sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : a.sesion_id - b.sesion_id));
+    const anterior = {}, progreso = {};
+    cronologico.forEach((s) => {
+      const porEj = {};
+      s.series.forEach((x) => { (porEj[x.ejercicio_id] = porEj[x.ejercicio_id] || []).push(x); });
+      Object.keys(porEj).forEach((id) => {
+        const ej = ejercicio(id);
+        if (!ej) return;
+        const m = medidaEjercicio(ej, porEj[id]);
+        if (anterior[id] != null && anterior[id] > 0) progreso[s.sesion_id + '|' + id] = (m - anterior[id]) / anterior[id];
+        anterior[id] = m;
+      });
+    });
+    const insignia = (p) => {
+      if (p == null) return '';
+      if (Math.abs(p) < 0.005) return '<span class="prog prog-igual" title="Igual que la vez anterior">=</span>';
+      const pct = Math.round(Math.abs(p) * 100);
+      return p > 0 ? '<span class="prog prog-sube" title="Mejor que la vez anterior">↑ ' + pct + '%</span>'
+                   : '<span class="prog prog-baja" title="Menos que la vez anterior">↓ ' + pct + '%</span>';
+    };
+
+    // Semanas de la más nueva a la más vieja; dentro de cada semana, los días en orden (lunes primero)
     const semanas = [];
-    sesiones.forEach((s) => {
+    cronologico.slice().reverse().forEach((s) => {
       const l = lunes(s.fecha);
-      let sem = semanas[semanas.length - 1];
-      if (!sem || sem.lunes !== l) semanas.push(sem = { lunes: l, sesiones: [] });
+      let sem = semanas.find((x) => x.lunes === l);
+      if (!sem) semanas.push(sem = { lunes: l, sesiones: [] });
       sem.sesiones.push(s);
     });
 
     $('hist-lista').innerHTML = semanas.map((sem) => {
+      sem.sesiones.sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : a.sesion_id - b.sesion_id));
       const dias = new Set(sem.sesiones.map((s) => s.fecha)).size;
       const fin = new Date(sem.lunes + 'T12:00:00Z'); fin.setUTCDate(fin.getUTCDate() + 6);
-      sem.sesiones.sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : a.sesion_id - b.sesion_id));
       const nSem = semanaPrograma(sem.lunes);
       const rango = corta(sem.lunes) + ' al ' + corta(fin.toISOString().slice(0, 10));
       const actual = sem.lunes === lunes(hoyTexto());
-      const titulo = nSem
-        ? 'Semana ' + nSem + ' <span class="sub">' + (actual ? 'esta semana' : rango) + '</span>'
-        : (actual ? 'Esta semana' : 'Semana del ' + rango);
-      // Promedio de agua de la semana: sobre los días que tienen agua registrada
+      const titulo = nSem ? 'Semana ' + nSem : (actual ? 'Esta semana' : 'Semana del ' + rango);
+      const subtitulo = nSem ? (actual ? 'esta semana' : rango) : '';
+      // Agua: promedio de los días de esa semana que tienen agua registrada
       const diasAgua = Object.keys(agua).filter((f) => lunes(f) === sem.lunes);
       const promAgua = diasAgua.length ? diasAgua.reduce((t, f) => t + agua[f], 0) / diasAgua.length : 0;
-      const lineaAgua = diasAgua.length ? '<p class="sub hist-agua">💧 promedio ' + textoVasos(promAgua) + ' por día (' + diasAgua.length + (diasAgua.length === 1 ? ' día registrado' : ' días registrados') + ')</p>' : '';
-      return '<h2 class="hist-semana">' + titulo + ' <span class="sub">· ' + dias + (dias === 1 ? ' día' : ' días') + ' · ' + sem.sesiones.length + (sem.sesiones.length === 1 ? ' sesión' : ' sesiones') + '</span></h2>' + lineaAgua +
+      const chipsSemana = '<span class="chip">' + dias + (dias === 1 ? ' día' : ' días') + ' · ' + sem.sesiones.length + (sem.sesiones.length === 1 ? ' sesión' : ' sesiones') + '</span>' +
+        (diasAgua.length ? '<span class="chip agua" title="' + diasAgua.length + (diasAgua.length === 1 ? ' día registrado' : ' días registrados') + '">💧 ' + textoVasos(promAgua) + '/día</span>' : '');
+
+      return '<section class="semana-bloque"><header class="semana-cab"><div><h2>' + titulo + '</h2>' +
+        (subtitulo ? '<span class="sub">' + subtitulo + '</span>' : '') + '</div><div class="semana-stats">' + chipsSemana + '</div></header>' +
         sem.sesiones.map((s) => {
-          // Series agrupadas por ejercicio, en el orden en que se hicieron
           const porEj = [];
           s.series.forEach((x) => {
             let g = porEj.find((e) => e.id === x.ejercicio_id);
@@ -540,7 +668,6 @@
             const texto = (lista) => {
               if (ej.tipo_medida === 'tiempo') return lista.map((x) => x.minutos + ' min' + (x.distancia_km ? ' · ' + n(x.distancia_km) + ' km' : '')).join(', ');
               if (ej.tipo_medida === 'reps') return lista.map((x) => x.reps).join(', ') + ' reps';
-              // "8 kg × 10, 10, 9" (si cambia el peso entre series, se muestra cada uno)
               const pesos = new Set(lista.map((x) => x.peso_kg));
               return pesos.size === 1
                 ? n(lista[0].peso_kg) + ' kg × ' + lista.map((x) => x.reps).join(', ')
@@ -550,25 +677,26 @@
             const detalle = lados[0].length || lados[1].length
               ? lados.map((lista, i) => lista.length ? (i ? 'izq ' : 'der ') + texto(lista) : '').filter(Boolean).join(' · ')
               : texto(g.series);
-            return '<li><b>' + esc(ej.nombre) + '</b><br><span class="sub">' + detalle + '</span></li>';
+            return '<li><div><b>' + esc(ej.nombre) + '</b><span class="sub">' + detalle + '</span></div>' + insignia(progreso[s.sesion_id + '|' + g.id]) + '</li>';
           }).join('');
-          const datosSesion = [
-            s.duracion_min ? s.duracion_min + ' min' : '',
-            s.energia_1a5 ? 'energía ' + s.energia_1a5 + '/5' : '',
-            s.esfuerzo_1a10 ? 'esfuerzo ' + s.esfuerzo_1a10 + '/10' : '',
-            s.sueno_horas ? n(s.sueno_horas) + ' h de sueño' : '',
-            agua[s.fecha] ? '💧 ' + textoVasos(agua[s.fecha]) : '',
-          ].filter(Boolean).join(' · ');
-          return '<details class="tarjeta hist-sesion"><summary><span class="hist-fecha">' + fechaLarga(s.fecha) + '</span>' +
-            '<span class="rutina-nombre">' + esc(nombreRutina(s.rutina_id)) + '</span>' +
-            '<span class="sub">' + datosSesion + '</span></summary>' +
+          const chips = [
+            s.duracion_min ? '⏱ ' + s.duracion_min + ' min' : '',
+            s.energia_1a5 ? '⚡ ' + s.energia_1a5 + '/5' : '',
+            s.esfuerzo_1a10 ? '💪 ' + s.esfuerzo_1a10 + '/10' : '',
+            s.sueno_horas ? '😴 ' + n(s.sueno_horas) + ' h' : '',
+          ].filter(Boolean).map((c) => '<span class="chip">' + c + '</span>').join('') +
+            (agua[s.fecha] ? '<span class="chip agua">💧 ' + textoVasos(agua[s.fecha]) + '</span>' : '');
+          return '<details class="tarjeta hist-sesion tipo-' + tipoDe(s.rutina_id) + '"><summary>' +
+            '<span class="hist-fila"><span class="hist-fecha">' + fechaLarga(s.fecha) + '</span><span class="hist-flecha" aria-hidden="true">⌄</span></span>' +
+            '<span class="hist-nombre">' + (TIPOS[tipoDe(s.rutina_id)] || TIPOS.fuerza).icono + ' ' + esc(nombreRutina(s.rutina_id)) + '</span>' +
+            '<span class="chips">' + chips + '</span></summary>' +
             '<ul class="hist-series">' + lineas + '</ul>' +
-            (s.notas ? '<p class="sub">📝 ' + esc(s.notas) + '</p>' : '') +
-            '<div class="hist-acciones"><label>Fecha <input type="date" max="' + hoyTexto() + '" value="' + s.fecha + '" id="fecha-' + s.sesion_id + '"></label>' +
-            '<button class="btn btn-chico" type="button" data-cambiar-fecha="' + s.sesion_id + '">Cambiar fecha</button>' +
-            '<button class="btn btn-link btn-peligro" type="button" data-borrar-sesion="' + s.sesion_id + '">🗑 Borrar sesión</button></div>' +
+            (s.notas ? '<p class="sub hist-notas">📝 ' + esc(s.notas) + '</p>' : '') +
+            '<div class="hist-acciones">' +
+            '<button class="btn btn-chico" type="button" data-editar-sesion="' + s.sesion_id + '">✏️ Editar</button>' +
+            '<button class="btn btn-link btn-peligro" type="button" data-borrar-sesion="' + s.sesion_id + '">🗑 Borrar</button></div>' +
             '</details>';
-        }).join('');
+        }).join('') + '</section>';
     }).join('');
   }
 
@@ -674,6 +802,7 @@
       if (!fecha || fecha > hoyTexto()) { aviso('Elegí una fecha válida (no futura)'); return; }
       corregirSesion({ accion: 'cambiar_fecha', sesion_id: Number(id), fecha: fecha }, 'Fecha corregida ✓');
     }
+    else if (t.dataset.editarSesion) editarSesion(t.dataset.editarSesion);
     else if (t.dataset.borrarSesion) {
       if (!confirm('¿Borrar esta sesión y todas sus series? No se puede deshacer.')) return;
       corregirSesion({ accion: 'borrar_sesion', sesion_id: Number(t.dataset.borrarSesion) }, 'Sesión borrada');
@@ -726,9 +855,10 @@
   });
   $('btn-salir-sesion').addEventListener('click', () => { mostrar('pantalla-inicio'); pintarInicio(); }); // el borrador queda guardado
   $('btn-descartar').addEventListener('click', () => {
-    if (!confirm('¿Descartar esta sesión? Se borra lo que cargaste.')) return;
+    const editando = b && b.editar;
+    if (!confirm(editando ? '¿Cancelar la edición? La sesión guardada queda como estaba.' : '¿Descartar esta sesión? Se borra lo que cargaste.')) return;
     borrar(K.borrador); b = null;
-    mostrar('pantalla-inicio'); pintarInicio();
+    if (editando) abrirHistorial(); else { mostrar('pantalla-inicio'); pintarInicio(); }
   });
 
   // Al volver a la app (por ejemplo, después de una alarma), se refrescan el agua y los pendientes

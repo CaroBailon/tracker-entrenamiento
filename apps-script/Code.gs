@@ -153,6 +153,7 @@ function doGet(e) {
  *   { token, accion: 'agua', ml, fecha? }                  → suma agua (sin fecha = hoy)
  *   { token, accion: 'deshacer_agua', fecha? }             → borra el último registro de agua de ese día
  *   { token, accion: 'objetivo', rutina_id, ejercicio_id, series_objetivo, reps_objetivo, minutos_objetivo }
+ *   { token, accion: 'editar_sesion', sesion_id, sesion: {...}, series: [...] } → reemplaza una sesión ya cargada
  *   { token, accion: 'cambiar_fecha', sesion_id, fecha }   → corrige la fecha de una sesión y de sus series
  *   { token, accion: 'borrar_sesion', sesion_id }          → borra una sesión cargada por error y sus series
  *   { token, accion: 'config', clave, valor }              → guarda un ajuste (por ahora: inicio_programa)
@@ -167,6 +168,10 @@ function doPost(e) {
     if (cuerpo.accion === 'agua') return json_(guardarAgua_(cuerpo, zona));
     if (cuerpo.accion === 'deshacer_agua') return json_(deshacerAgua_(cuerpo, zona));
     if (cuerpo.accion === 'sesion') return json_(guardarSesion_(cuerpo, zona));
+    if (cuerpo.accion === 'editar_sesion') {
+      if (cuerpo.sesion_id == null) throw new Error('Falta el número de sesión');
+      return json_(guardarSesion_(cuerpo, zona, cuerpo.sesion_id));
+    }
     if (cuerpo.accion === 'objetivo') return json_(guardarObjetivo_(cuerpo));
     if (cuerpo.accion === 'cambiar_fecha') return json_(cambiarFecha_(cuerpo, zona));
     if (cuerpo.accion === 'borrar_sesion') return json_(borrarSesion_(cuerpo));
@@ -214,7 +219,8 @@ function aguaDelDia_(fecha, zona) {
     .reduce(function (s, a) { return s + Number(a.ml || 0); }, 0);
 }
 
-function guardarSesion_(cuerpo, zona) {
+// Guarda una sesión nueva o, si llega sesionIdExistente, reemplaza una ya cargada (editar)
+function guardarSesion_(cuerpo, zona, sesionIdExistente) {
   const s = cuerpo.sesion || {};
   const series = cuerpo.series || [];
   const ejercicios = leerTabla_('Ejercicios').reduce(function (o, x) { o[x.ejercicio_id] = x; return o; }, {});
@@ -244,10 +250,23 @@ function guardarSesion_(cuerpo, zona) {
             volumen, rm];
   });
 
-  const sesionId = siguienteId_('Sesiones');
-  hoja_('Sesiones').appendRow([sesionId, fecha, s.rutina_id || '', vacioANull_(s.duracion_min) ?? '',
+  const datosSesion = [fecha, s.rutina_id || '', vacioANull_(s.duracion_min) ?? '',
     vacioANull_(s.energia_1a5) ?? '', vacioANull_(s.esfuerzo_1a10) ?? '', vacioANull_(s.sueno_horas) ?? '',
-    String(s.notas || '').slice(0, 500), Utilities.formatDate(new Date(), zona, "yyyy-MM-dd'T'HH:mm:ss")]);
+    String(s.notas || '').slice(0, 500)];
+  let sesionId;
+  if (sesionIdExistente == null) {
+    sesionId = siguienteId_('Sesiones');
+    hoja_('Sesiones').appendRow([sesionId].concat(datosSesion, [Utilities.formatDate(new Date(), zona, "yyyy-MM-dd'T'HH:mm:ss")]));
+  } else {
+    // Editar: se pisa la fila de la sesión (se mantiene su id y cuándo se registró) y se reemplazan todas sus series
+    sesionId = Number(sesionIdExistente);
+    const h = hoja_('Sesiones');
+    const valores = h.getDataRange().getValues();
+    const i = valores.findIndex(function (f, j) { return j > 0 && Number(f[0]) === sesionId; });
+    if (i < 1) throw new Error('No encontré esa sesión');
+    h.getRange(i + 1, 1, 1, valores[i].length).setValues([[sesionId].concat(datosSesion, [valores[i][8]])]);
+    borrarFilasDeSesion_('Series', sesionId);
+  }
 
   if (filas.length) {
     let id = siguienteId_('Series');
@@ -334,6 +353,19 @@ function cambiarFecha_(c, zona) {
   });
   if (!encontrada) throw new Error('No encontré esa sesión');
   return { ok: true };
+}
+
+function borrarFilasDeSesion_(nombre, sesionId) {
+  const h = hoja_(nombre);
+  const valores = h.getDataRange().getValues();
+  const iId = valores[0].indexOf('sesion_id');
+  let borradas = 0;
+  for (let i = valores.length - 1; i >= 1; i--) { // de abajo hacia arriba, para que borrar no corra las filas
+    if (Number(valores[i][iId]) !== Number(sesionId)) continue;
+    h.deleteRows(i + 1, 1);
+    borradas++;
+  }
+  return borradas;
 }
 
 // Borra una sesión y sus series. Se recorre de abajo hacia arriba para que borrar una fila no corra las demás.

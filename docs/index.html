@@ -14,20 +14,10 @@
   <link rel="stylesheet" href="estilos.css">
 </head>
 <body>
-  <!-- Pantalla 1: configuración (solo la primera vez) -->
+  <!-- Pantalla 1: configuración -->
   <main id="pantalla-config" class="pantalla" hidden>
+    <button id="cfg-volver" class="btn btn-link volver" type="button" hidden>← Inicio</button>
     <h1>Configuración</h1>
-    <p class="ayuda">Pegá la URL de la app web de Apps Script y tu clave. Se guardan solo en este celular.</p>
-    <form id="form-config">
-      <label>URL de la app web
-        <input id="cfg-url" type="url" placeholder="https://script.google.com/macros/s/.../exec" required autocomplete="off">
-      </label>
-      <label>Clave
-        <input id="cfg-token" type="password" required autocomplete="off">
-      </label>
-      <button type="submit" class="btn btn-principal">Probar y guardar</button>
-    </form>
-    <p id="cfg-estado" class="estado" role="status"></p>
     <form id="form-semana" class="tarjeta" hidden>
       <h2>Semana del programa</h2>
       <p class="ayuda">¿En qué semana del programa estás hoy? Con esto se numeran todas las semanas del historial.</p>
@@ -36,25 +26,51 @@
       </label>
       <button type="submit" class="btn btn-principal">Guardar semana</button>
     </form>
+    <form id="form-config" class="tarjeta">
+      <h2>Conexión con la planilla</h2>
+      <p class="ayuda">La URL de la app web de Apps Script y tu clave. Se guardan solo en este celular.</p>
+      <label>URL de la app web
+        <input id="cfg-url" type="url" placeholder="https://script.google.com/macros/s/.../exec" required autocomplete="off">
+      </label>
+      <label>Clave
+        <input id="cfg-token" type="password" required autocomplete="off">
+      </label>
+      <button type="submit" class="btn btn-principal">Probar y guardar</button>
+      <p id="cfg-estado" class="estado" role="status"></p>
+    </form>
     <button id="cfg-borrar-local" class="btn btn-link btn-peligro" type="button">Borrar datos guardados en este celular</button>
-    <button id="cfg-volver" class="btn btn-link" type="button" hidden>← Volver</button>
   </main>
 
   <!-- Pantalla 2: inicio -->
   <main id="pantalla-inicio" class="pantalla" hidden>
-    <header class="encabezado">
-      <h1>Hola, Caro</h1>
-      <p id="fecha-hoy" class="sub"></p>
-      <p id="semana-hoy" class="semana-hoy"></p>
+    <header class="hero">
+      <div>
+        <p id="fecha-hoy" class="hero-fecha"></p>
+        <h1>Hola, Caro</h1>
+      </div>
+      <span id="semana-hoy" class="chip-semana"></span>
     </header>
 
     <div id="aviso-pendientes" class="aviso" hidden></div>
     <div id="aviso-borrador" class="aviso" hidden></div>
 
+    <!-- Constancia de la semana -->
+    <section class="tarjeta" aria-labelledby="titulo-semana">
+      <div class="tarjeta-cab">
+        <h2 id="titulo-semana">Esta semana</h2>
+        <span id="semana-cuenta" class="cuenta"></span>
+      </div>
+      <div id="semana-dias" class="dias" aria-label="Días entrenados esta semana"></div>
+      <button id="btn-historial" class="btn btn-link link-flecha" type="button">Ver mis entrenamientos <span aria-hidden="true">→</span></button>
+    </section>
+
+    <!-- Agua -->
     <section class="tarjeta" aria-labelledby="titulo-agua">
-      <h2 id="titulo-agua">💧 Agua</h2>
-      <p class="agua-grande"><span id="agua-vasos">0</span> <span class="sub">de <span id="agua-meta-vasos">8</span> vasos</span></p>
-      <div class="barra" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="agua-barra"><div id="agua-relleno"></div></div>
+      <div class="tarjeta-cab">
+        <h2 id="titulo-agua">💧 Agua</h2>
+        <span class="cuenta agua-cuenta"><b id="agua-vasos">0</b> de <span id="agua-meta-vasos">8</span> vasos</span>
+      </div>
+      <div id="agua-vasitos" class="vasitos" role="img"></div>
       <p id="agua-ml" class="sub"></p>
       <div class="fila-botones">
         <button id="btn-vaso" class="btn btn-agua" type="button">+1 vaso</button>
@@ -78,25 +94,25 @@
       </form>
     </section>
 
-    <button id="btn-historial" class="btn btn-secundario" type="button">📅 Ver mis entrenamientos</button>
-
     <section aria-labelledby="titulo-rutinas">
-      <h2 id="titulo-rutinas">¿Qué entrenás hoy?</h2>
-      <div id="lista-rutinas" class="lista-rutinas"></div>
+      <h2 id="titulo-rutinas" class="titulo-seccion">¿Qué entrenás hoy?</h2>
+      <div id="lista-rutinas" class="grilla-rutinas"></div>
     </section>
 
     <footer class="pie">
       <span id="estado-sync" class="sub"></span>
-      <button id="btn-config" class="btn btn-link" type="button">Configuración</button>
+      <button id="btn-config" class="btn btn-link" type="button">⚙️ Configuración</button>
     </footer>
   </main>
 
-  <!-- Pantalla 3: sesión -->
-  <main id="pantalla-sesion" class="pantalla" hidden>
-    <header class="encabezado">
-      <button id="btn-salir-sesion" class="btn btn-link" type="button">← Inicio</button>
+  <!-- Pantalla 3: sesión (nueva o editando una ya guardada) -->
+  <main id="pantalla-sesion" class="pantalla con-barra" hidden>
+    <button id="btn-salir-sesion" class="btn btn-link volver" type="button">← Inicio</button>
+    <header id="sesion-cab" class="sesion-cab">
+      <p id="sesion-tipo" class="sesion-tipo"></p>
       <h1 id="sesion-titulo"></h1>
       <p id="sesion-inicio" class="sub"></p>
+      <p id="sesion-editando" class="aviso aviso-edicion" hidden></p>
       <label class="fecha-sesion">Fecha del entrenamiento
         <input id="in-fecha" type="date">
       </label>
@@ -106,36 +122,39 @@
 
     <section class="tarjeta" aria-labelledby="titulo-sensaciones">
       <h2 id="titulo-sensaciones">¿Cómo te sentiste?</h2>
-      <p class="etiqueta">Energía (1 = sin energía, 5 = a full)</p>
+      <p class="etiqueta">⚡ Energía <span class="sub">1 = sin energía · 5 = a full</span></p>
       <div id="sel-energia" class="selector" role="radiogroup" aria-label="Energía"></div>
-      <p class="etiqueta">Esfuerzo (1 = muy fácil, 10 = al límite)</p>
+      <p class="etiqueta">💪 Esfuerzo <span class="sub">1 = muy fácil · 10 = al límite</span></p>
       <div id="sel-esfuerzo" class="selector" role="radiogroup" aria-label="Esfuerzo"></div>
       <div class="dos-col">
-        <label>Horas de sueño
+        <label>😴 Horas de sueño
           <input id="in-sueno" type="number" inputmode="decimal" min="0" max="14" step="0.5">
         </label>
-        <label>Duración (min)
+        <label>⏱ Duración (min)
           <input id="in-duracion" type="number" inputmode="numeric" min="1" max="300">
         </label>
       </div>
-      <label>Notas
+      <label>📝 Notas
         <textarea id="in-notas" rows="2" maxlength="500" placeholder="Ej.: me molestó la rodilla izquierda"></textarea>
       </label>
     </section>
 
-    <p id="sesion-error" class="error" role="alert"></p>
-    <button id="btn-guardar" class="btn btn-principal" type="button">Guardar sesión</button>
     <button id="btn-descartar" class="btn btn-link btn-peligro" type="button">Descartar sesión</button>
+
+    <!-- Barra fija abajo: el botón de guardar siempre a mano -->
+    <div class="barra-guardar">
+      <p id="sesion-error" class="error" role="alert"></p>
+      <button id="btn-guardar" class="btn btn-principal" type="button">Guardar sesión</button>
+    </div>
   </main>
 
   <!-- Pantalla 4: historial -->
   <main id="pantalla-historial" class="pantalla" hidden>
-    <header class="encabezado">
-      <button id="hist-volver" class="btn btn-link" type="button">← Inicio</button>
-      <h1>Mis entrenamientos</h1>
-      <p class="sub">Últimos 90 días. Tocá una sesión para ver las series.</p>
-      <p id="hist-estado" class="sub" role="status"></p>
-    </header>
+    <button id="hist-volver" class="btn btn-link volver" type="button">← Inicio</button>
+    <h1>Mis entrenamientos</h1>
+    <p class="sub">Últimos 90 días. Tocá una sesión para ver las series, editarla o borrarla.</p>
+    <p class="sub leyenda"><span class="prog prog-sube">↑</span> mejor que la vez anterior · <span class="prog prog-igual">=</span> igual · <span class="prog prog-baja">↓</span> menos</p>
+    <p id="hist-estado" class="sub" role="status"></p>
     <div id="hist-lista"></div>
   </main>
 

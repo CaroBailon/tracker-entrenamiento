@@ -85,6 +85,15 @@ assert(r.ok && r.ml_borrados === 250 && r.agua_dia_ml === 1500, 'deshacer borra 
 assert(post({ token: T, accion: 'agua', ml: 250, fecha: '2099-01-01' }).ok === false, 'agua con fecha futura se rechaza');
 assert(post({ token: T, accion: 'deshacer_agua', fecha: '2026-01-01' }).ok === false, 'deshacer un día sin agua se rechaza');
 assert(get({ token: T, accion: 'historial', dias: 3650 }).agua['2026-11-10'] === 1500, 'el historial trae el agua por día');
+const seriesAntes = hojas.Series.datos.length;
+r = post({ token: T, accion: 'editar_sesion', sesion_id: 2, sesion: { fecha: '2026-11-06', rutina_id: 'superior', energia_1a5: 2, esfuerzo_1a10: 6, duracion_min: 40, notas: 'editada' },
+  series: [{ ejercicio_id: 'press_pecho', serie_n: 1, reps: 12, peso_kg: 7 }, { ejercicio_id: 'press_pecho', serie_n: 2, reps: 10, peso_kg: 7 }] });
+const ed = get({ token: T, accion: 'historial', dias: 3650 }).sesiones.find((x) => x.sesion_id === 2);
+assert(r.ok && r.sesion_id === 2 && ed.fecha === '2026-11-06' && ed.energia_1a5 === 2 && ed.notas === 'editada', 'editar_sesion cambia fecha, energía y notas manteniendo el id');
+assert(ed.series.length === 2 && ed.series[0].reps === 12 && ed.series[1].peso_kg === 7, 'editar_sesion reemplaza las series');
+assert(hojas.Sesiones.datos.filter((f) => f[0] === 2).length === 1, 'editar no duplica la sesión');
+assert(post({ token: T, accion: 'editar_sesion', sesion_id: 99, sesion: { energia_1a5: 3 }, series: [] }).ok === false, 'editar una sesión inexistente se rechaza');
+assert(post({ token: T, accion: 'editar_sesion', sesion_id: 2, sesion: { energia_1a5: 9 }, series: [] }).ok === false && get({ token: T, accion: 'historial', dias: 3650 }).sesiones.find((x) => x.sesion_id === 2).series.length === 2, 'si los datos son inválidos no se toca nada');
 ctx.borrarRegistros();
 assert(hojas.Sesiones.datos.length === 1 && hojas.Series.datos.length === 1 && hojas.Agua.datos.length === 1, 'borrarRegistros deja solo los encabezados');
 assert(hojas.Ejercicios.datos.length === 20 && hojas.Rutinas.datos.length === 21, 'borrarRegistros no toca ejercicios ni rutinas');
