@@ -28,6 +28,14 @@
       <button type="submit" class="btn btn-principal">Probar y guardar</button>
     </form>
     <p id="cfg-estado" class="estado" role="status"></p>
+    <form id="form-semana" class="tarjeta" hidden>
+      <h2>Semana del programa</h2>
+      <p class="ayuda">¿En qué semana del programa estás hoy? Con esto se numeran todas las semanas del historial.</p>
+      <label>Semana actual
+        <input id="cfg-semana" type="number" inputmode="numeric" min="1" max="200" placeholder="Ej.: 7">
+      </label>
+      <button type="submit" class="btn btn-principal">Guardar semana</button>
+    </form>
     <button id="cfg-borrar-local" class="btn btn-link btn-peligro" type="button">Borrar datos guardados en este celular</button>
     <button id="cfg-volver" class="btn btn-link" type="button" hidden>← Volver</button>
   </main>
@@ -37,6 +45,7 @@
     <header class="encabezado">
       <h1>Hola, Caro</h1>
       <p id="fecha-hoy" class="sub"></p>
+      <p id="semana-hoy" class="semana-hoy"></p>
     </header>
 
     <div id="aviso-pendientes" class="aviso" hidden></div>

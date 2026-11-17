@@ -132,7 +132,11 @@ function doGet(e) {
       hoy: hoy,
       ejercicios: leerTabla_('Ejercicios').filter(function (x) { return x.activo === 'SI'; }),
       rutinas: leerTabla_('Rutinas'),
-      config: leerTabla_('Config').reduce(function (o, f) { o[f.clave] = f.valor; return o; }, {}),
+      config: leerTabla_('Config').reduce(function (o, f) {
+        // Sheets convierte las fechas en Date: se devuelven como yyyy-mm-dd
+        o[f.clave] = Object.prototype.toString.call(f.valor) === '[object Date]' ? fechaTexto_(f.valor, zona) : f.valor;
+        return o;
+      }, {}),
       agua_hoy_ml: leerTabla_('Agua')
         .filter(function (a) { return fechaTexto_(a.fecha, zona) === hoy; })
         .reduce(function (s, a) { return s + Number(a.ml || 0); }, 0),
@@ -150,6 +154,7 @@ function doGet(e) {
  *   { token, accion: 'objetivo', rutina_id, ejercicio_id, series_objetivo, reps_objetivo, minutos_objetivo }
  *   { token, accion: 'cambiar_fecha', sesion_id, fecha }   → corrige la fecha de una sesión y de sus series
  *   { token, accion: 'borrar_sesion', sesion_id }          → borra una sesión cargada por error y sus series
+ *   { token, accion: 'config', clave, valor }              → guarda un ajuste (por ahora: inicio_programa)
  */
 function doPost(e) {
   const candado = LockService.getScriptLock();
@@ -163,6 +168,7 @@ function doPost(e) {
     if (cuerpo.accion === 'objetivo') return json_(guardarObjetivo_(cuerpo));
     if (cuerpo.accion === 'cambiar_fecha') return json_(cambiarFecha_(cuerpo, zona));
     if (cuerpo.accion === 'borrar_sesion') return json_(borrarSesion_(cuerpo));
+    if (cuerpo.accion === 'config') return json_(guardarConfig_(cuerpo));
     throw new Error('Acción desconocida');
   } catch (err) {
     return json_({ ok: false, error: err.message });
@@ -258,6 +264,25 @@ function borrarRegistros() {
     if (h.getLastRow() > 1) h.deleteRows(2, h.getLastRow() - 1);
   });
   Logger.log('Listo: se borraron las sesiones, las series y el agua.');
+}
+
+// Ajustes que se pueden cambiar desde la app. inicio_programa = lunes de la semana 1 del programa,
+// para numerar las semanas ("Semana 7") en la app y en Power BI.
+const CONFIG_EDITABLE = { inicio_programa: 'Lunes de la semana 1 del programa (para numerar las semanas)' };
+
+function guardarConfig_(c) {
+  if (!CONFIG_EDITABLE[c.clave]) throw new Error('Ajuste no editable: ' + c.clave);
+  if (c.clave === 'inicio_programa' && !/^\d{4}-\d{2}-\d{2}$/.test(c.valor || '')) throw new Error('Fecha inválida');
+  const h = hoja_('Config');
+  const valores = h.getDataRange().getValues();
+  for (let i = 1; i < valores.length; i++) {
+    if (valores[i][0] !== c.clave) continue;
+    valores[i][1] = c.valor;
+    h.getRange(i + 1, 1, 1, valores[i].length).setValues([valores[i]]);
+    return { ok: true };
+  }
+  h.appendRow([c.clave, c.valor, CONFIG_EDITABLE[c.clave]]);
+  return { ok: true };
 }
 
 // Corrige la fecha de una sesión (en Sesiones y en todas sus Series, para que nunca queden distintas)

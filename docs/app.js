@@ -138,6 +138,8 @@
   // ---------------------------------------------------------------------------
   function pintarInicio() {
     $('fecha-hoy').textContent = new Date().toLocaleDateString('es-AR', { timeZone: ZONA, weekday: 'long', day: 'numeric', month: 'long' });
+    const nSem = semanaPrograma(hoyTexto());
+    $('semana-hoy').textContent = nSem ? 'Semana ' + nSem + ' del programa' : '';
     pintarAgua();
 
     const hecho = hechoHoy();
@@ -463,6 +465,14 @@
     return d.toISOString().slice(0, 10);
   }
 
+  // Número de semana del programa (1, 2, 3…) según el lunes de la semana 1 guardado en la planilla
+  function semanaPrograma(fecha) {
+    const inicio = datos && datos.config && datos.config.inicio_programa;
+    if (!inicio) return null;
+    const n = Math.floor((Date.parse(lunes(fecha) + 'T12:00:00Z') - Date.parse(lunes(inicio) + 'T12:00:00Z')) / (7 * 864e5)) + 1;
+    return n >= 1 ? n : null;
+  }
+
   function pintarHistorial(sesiones) {
     if (!sesiones.length) { $('hist-lista').innerHTML = '<p class="sub">Todavía no hay sesiones cargadas.</p>'; return; }
     const nombreRutina = (id) => { const r = rutina(id); return r ? r.nombre : id; };
@@ -470,7 +480,9 @@
     const corta = (f) => new Date(f + 'T12:00:00Z').toLocaleDateString('es-AR', { timeZone: 'UTC', day: 'numeric', month: 'numeric' });
     const n = (v) => String(v).replace('.', ',');
 
-    // Agrupa por semana (de lunes a domingo)
+    // Agrupa por semana (de lunes a domingo): semanas de la más nueva a la más vieja,
+    // y dentro de cada semana los días en orden (lunes primero), como se leen en un calendario
+    sesiones = sesiones.slice().sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : a.sesion_id - b.sesion_id));
     const semanas = [];
     sesiones.forEach((s) => {
       const l = lunes(s.fecha);
@@ -482,7 +494,13 @@
     $('hist-lista').innerHTML = semanas.map((sem) => {
       const dias = new Set(sem.sesiones.map((s) => s.fecha)).size;
       const fin = new Date(sem.lunes + 'T12:00:00Z'); fin.setUTCDate(fin.getUTCDate() + 6);
-      const titulo = sem.lunes === lunes(hoyTexto()) ? 'Esta semana' : 'Semana del ' + corta(sem.lunes) + ' al ' + corta(fin.toISOString().slice(0, 10));
+      sem.sesiones.sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : a.sesion_id - b.sesion_id));
+      const nSem = semanaPrograma(sem.lunes);
+      const rango = corta(sem.lunes) + ' al ' + corta(fin.toISOString().slice(0, 10));
+      const actual = sem.lunes === lunes(hoyTexto());
+      const titulo = nSem
+        ? 'Semana ' + nSem + ' <span class="sub">' + (actual ? 'esta semana' : rango) + '</span>'
+        : (actual ? 'Esta semana' : 'Semana del ' + rango);
       return '<h2 class="hist-semana">' + titulo + ' <span class="sub">· ' + dias + (dias === 1 ? ' día' : ' días') + ' · ' + sem.sesiones.length + (sem.sesiones.length === 1 ? ' sesión' : ' sesiones') + '</span></h2>' +
         sem.sesiones.map((s) => {
           // Series agrupadas por ejercicio, en el orden en que se hicieron
@@ -552,12 +570,33 @@
     }
   });
 
+  $('form-semana').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const n = num($('cfg-semana').value);
+    if (!(n >= 1 && n <= 200 && Number.isInteger(n))) { aviso('Poné un número de semana (1, 2, 3…)'); return; }
+    // Semana 1 = el lunes de esta semana menos (n - 1) semanas
+    const d = new Date(lunes(hoyTexto()) + 'T12:00:00Z');
+    d.setUTCDate(d.getUTCDate() - (n - 1) * 7);
+    const inicio = d.toISOString().slice(0, 10);
+    try {
+      await apiPost({ accion: 'config', clave: 'inicio_programa', valor: inicio });
+      datos.config.inicio_programa = inicio; guardar(K.datos, datos);
+      borrar(K.historial);
+      aviso('Listo: esta es la semana ' + n);
+      mostrar('pantalla-inicio'); pintarInicio();
+    } catch (err) {
+      aviso(err instanceof ErrorServidor ? 'No se pudo: ' + err.message : 'Sin conexión: probá de nuevo con internet');
+    }
+  });
+
   $('cfg-volver').addEventListener('click', () => { mostrar('pantalla-inicio'); pintarInicio(); });
   $('btn-config').addEventListener('click', () => {
     $('cfg-url').value = conf ? conf.url : '';
     $('cfg-token').value = conf ? conf.token : '';
     $('cfg-volver').hidden = !datos;
     $('cfg-estado').textContent = '';
+    $('form-semana').hidden = !datos;
+    $('cfg-semana').value = datos ? (semanaPrograma(hoyTexto()) || '') : '';
     mostrar('pantalla-config');
   });
 
