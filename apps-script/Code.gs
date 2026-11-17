@@ -150,7 +150,8 @@ function doGet(e) {
 /**
  * POST con cuerpo JSON (enviado como text/plain para evitar el preflight de CORS):
  *   { token, accion: 'sesion', sesion: {...}, series: [...] }
- *   { token, accion: 'agua', ml }
+ *   { token, accion: 'agua', ml, fecha? }                  → suma agua (sin fecha = hoy)
+ *   { token, accion: 'deshacer_agua', fecha? }             → borra el último registro de agua de ese día
  *   { token, accion: 'objetivo', rutina_id, ejercicio_id, series_objetivo, reps_objetivo, minutos_objetivo }
  *   { token, accion: 'cambiar_fecha', sesion_id, fecha }   → corrige la fecha de una sesión y de sus series
  *   { token, accion: 'borrar_sesion', sesion_id }          → borra una sesión cargada por error y sus series
@@ -164,6 +165,7 @@ function doPost(e) {
     candado.waitLock(10000); // dos envíos al mismo tiempo no se pisan los ids
     const zona = valorConfig_('zona_horaria');
     if (cuerpo.accion === 'agua') return json_(guardarAgua_(cuerpo, zona));
+    if (cuerpo.accion === 'deshacer_agua') return json_(deshacerAgua_(cuerpo, zona));
     if (cuerpo.accion === 'sesion') return json_(guardarSesion_(cuerpo, zona));
     if (cuerpo.accion === 'objetivo') return json_(guardarObjetivo_(cuerpo));
     if (cuerpo.accion === 'cambiar_fecha') return json_(cambiarFecha_(cuerpo, zona));
@@ -177,16 +179,39 @@ function doPost(e) {
   }
 }
 
+// Suma agua. Sin fecha = hoy. Con fecha pasada sirve para cargar un día que se olvidó registrar.
 function guardarAgua_(cuerpo, zona) {
   const ml = Number(cuerpo.ml);
-  if (!(ml > 0 && ml <= 3000)) throw new Error('Cantidad de agua inválida');
+  if (!(ml > 0 && ml <= 5000)) throw new Error('Cantidad de agua inválida');
   const ahora = new Date();
-  const fecha = Utilities.formatDate(ahora, zona, 'yyyy-MM-dd');
-  hoja_('Agua').appendRow([siguienteId_('Agua'), fecha, Utilities.formatDate(ahora, zona, 'HH:mm'), ml]);
-  const total = leerTabla_('Agua')
+  const hoy = Utilities.formatDate(ahora, zona, 'yyyy-MM-dd');
+  const fecha = cuerpo.fecha || hoy;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new Error('Fecha inválida');
+  if (fecha > hoy) throw new Error('La fecha no puede ser futura');
+  // La hora solo se conoce si se registra en el momento; en un día pasado queda vacía
+  const hora = fecha === hoy ? Utilities.formatDate(ahora, zona, 'HH:mm') : '';
+  hoja_('Agua').appendRow([siguienteId_('Agua'), fecha, hora, ml]);
+  return { ok: true, agua_hoy_ml: aguaDelDia_(hoy, zona), agua_dia_ml: aguaDelDia_(fecha, zona) };
+}
+
+// Borra el último registro de agua de un día (por ejemplo, un vaso tocado de más)
+function deshacerAgua_(cuerpo, zona) {
+  const hoy = Utilities.formatDate(new Date(), zona, 'yyyy-MM-dd');
+  const fecha = cuerpo.fecha || hoy;
+  const h = hoja_('Agua');
+  const valores = h.getDataRange().getValues();
+  for (let i = valores.length - 1; i >= 1; i--) {
+    if (fechaTexto_(valores[i][1], zona) !== fecha) continue;
+    h.deleteRows(i + 1, 1);
+    return { ok: true, ml_borrados: Number(valores[i][3]), agua_hoy_ml: aguaDelDia_(hoy, zona), agua_dia_ml: aguaDelDia_(fecha, zona) };
+  }
+  throw new Error('No hay agua registrada ese día');
+}
+
+function aguaDelDia_(fecha, zona) {
+  return leerTabla_('Agua')
     .filter(function (a) { return fechaTexto_(a.fecha, zona) === fecha; })
     .reduce(function (s, a) { return s + Number(a.ml || 0); }, 0);
-  return { ok: true, agua_hoy_ml: total };
 }
 
 function guardarSesion_(cuerpo, zona) {
@@ -253,7 +278,13 @@ function historial_(zona, dias) {
     })
     .filter(function (s) { return s.fecha >= desde; })
     .sort(function (a, b) { return a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : b.sesion_id - a.sesion_id; });
-  return { ok: true, sesiones: sesiones };
+  // Agua por día en el mismo período, para mostrarla junto a las sesiones
+  const agua = {};
+  leerTabla_('Agua').forEach(function (a) {
+    const f = fechaTexto_(a.fecha, zona);
+    if (f >= desde) agua[f] = (agua[f] || 0) + Number(a.ml || 0);
+  });
+  return { ok: true, sesiones: sesiones, agua: agua };
 }
 
 // Para empezar de cero: borra sesiones, series y agua. NO toca ejercicios, rutinas ni configuración.

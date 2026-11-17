@@ -60,6 +60,22 @@
         <button id="btn-vaso" class="btn btn-agua" type="button">+1 vaso</button>
         <button id="btn-botella" class="btn btn-agua" type="button">+1 botella</button>
       </div>
+      <div class="fila-links">
+        <button id="btn-deshacer-agua" class="btn btn-link" type="button">↩︎ Deshacer último</button>
+        <button id="btn-agua-otro" class="btn btn-link" type="button">📅 Agua de otro día</button>
+      </div>
+      <form id="form-agua-otro" class="agua-otro" hidden>
+        <p class="ayuda chica">¿Te olvidaste de registrar un día? Elegí la fecha y cuántos vasos tomaste: se suman a lo que ya tenga ese día.</p>
+        <div class="dos-col">
+          <label>Fecha <input id="agua-fecha" type="date" required></label>
+          <label>Vasos <input id="agua-vasos-otro" type="number" inputmode="decimal" min="0.5" max="20" step="0.5" required></label>
+        </div>
+        <p id="agua-otro-ml" class="sub"></p>
+        <div class="fila-botones">
+          <button type="submit" class="btn btn-agua">Guardar</button>
+          <button id="btn-deshacer-otro" class="btn btn-link" type="button">↩︎ Deshacer último de ese día</button>
+        </div>
+      </form>
     </section>
 
     <button id="btn-historial" class="btn btn-secundario" type="button">📅 Ver mis entrenamientos</button>

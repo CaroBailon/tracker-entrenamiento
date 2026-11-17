@@ -194,7 +194,7 @@
     guardar(K.datos, datos);
     pintarAgua();
     try {
-      const r = await enviar({ accion: 'agua', ml: ml });
+      const r = await enviar({ accion: 'agua', ml: ml, fecha: hoyTexto() }); // con fecha: si queda en la cola, se guarda en el día correcto
       if (r) { datos.agua_hoy_ml = r.agua_hoy_ml; guardar(K.datos, datos); pintarAgua(); aviso('+' + ml + ' ml 💧'); }
       else { aviso('Sin conexión: el agua se envía después'); pintarInicio(); }
     } catch (err) {
@@ -202,6 +202,26 @@
       aviso('No se guardó: ' + err.message);
     }
   }
+
+  const vasoMl = () => Number(datos.config.vaso_ml) || 250;
+
+  // Deshacer el último registro de agua de un día. Necesita conexión: borra algo que ya está en la planilla.
+  async function deshacerAgua(fecha) {
+    if (!confirm('¿Borrar el último registro de agua de ' + elDia(fecha, false) + '?')) return;
+    try {
+      const r = await apiPost({ accion: 'deshacer_agua', fecha: fecha });
+      datos.hoy = hoyTexto(); datos.agua_hoy_ml = r.agua_hoy_ml; guardar(K.datos, datos); pintarAgua();
+      borrar(K.historial);
+      aviso('Borrado (' + r.ml_borrados + ' ml). ' + elDia(fecha, true) + ' queda en ' + textoVasos(r.agua_dia_ml));
+    } catch (err) {
+      aviso(err instanceof ErrorServidor ? err.message : 'Sin conexión: probá de nuevo con internet');
+    }
+  }
+
+  const fechaCorta = (f) => (f === hoyTexto() ? 'hoy' : new Date(f + 'T12:00:00Z').toLocaleDateString('es-AR', { timeZone: 'UTC', day: 'numeric', month: 'numeric' }));
+  // "hoy" / "el 3/11", con mayúscula al comienzo de una oración si hace falta
+  const elDia = (f, mayus) => (f === hoyTexto() ? (mayus ? 'Hoy' : 'hoy') : (mayus ? 'El ' : 'el ') + fechaCorta(f));
+  const textoVasos = (ml) => { const v = Math.round((ml / vasoMl()) * 10) / 10; return String(v).replace('.', ',') + (v === 1 ? ' vaso' : ' vasos'); };
 
   // ---------------------------------------------------------------------------
   // Pantalla de sesión
@@ -430,7 +450,7 @@
   async function abrirHistorial() {
     mostrar('pantalla-historial');
     const cache = leer(K.historial, null);
-    if (cache) pintarHistorial(cache.sesiones);
+    if (cache) pintarHistorial(cache.sesiones, cache.agua);
     $('hist-estado').textContent = 'Actualizando…';
     try {
       await vaciarCola(); // así aparece también lo que se cargó sin conexión
@@ -438,7 +458,7 @@
       const j = await r.json();
       if (!j.ok) throw new ErrorServidor(j.error);
       guardar(K.historial, j);
-      pintarHistorial(j.sesiones);
+      pintarHistorial(j.sesiones, j.agua);
       $('hist-estado').textContent = '';
     } catch (err) {
       $('hist-estado').textContent = err instanceof ErrorServidor ? 'Error: ' + err.message : 'Sin conexión: mostrando lo último guardado';
@@ -473,7 +493,8 @@
     return n >= 1 ? n : null;
   }
 
-  function pintarHistorial(sesiones) {
+  function pintarHistorial(sesiones, agua) {
+    agua = agua || {};
     if (!sesiones.length) { $('hist-lista').innerHTML = '<p class="sub">Todavía no hay sesiones cargadas.</p>'; return; }
     const nombreRutina = (id) => { const r = rutina(id); return r ? r.nombre : id; };
     const fechaLarga = (f) => new Date(f + 'T12:00:00Z').toLocaleDateString('es-AR', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long' });
@@ -501,7 +522,11 @@
       const titulo = nSem
         ? 'Semana ' + nSem + ' <span class="sub">' + (actual ? 'esta semana' : rango) + '</span>'
         : (actual ? 'Esta semana' : 'Semana del ' + rango);
-      return '<h2 class="hist-semana">' + titulo + ' <span class="sub">· ' + dias + (dias === 1 ? ' día' : ' días') + ' · ' + sem.sesiones.length + (sem.sesiones.length === 1 ? ' sesión' : ' sesiones') + '</span></h2>' +
+      // Promedio de agua de la semana: sobre los días que tienen agua registrada
+      const diasAgua = Object.keys(agua).filter((f) => lunes(f) === sem.lunes);
+      const promAgua = diasAgua.length ? diasAgua.reduce((t, f) => t + agua[f], 0) / diasAgua.length : 0;
+      const lineaAgua = diasAgua.length ? '<p class="sub hist-agua">💧 promedio ' + textoVasos(promAgua) + ' por día (' + diasAgua.length + (diasAgua.length === 1 ? ' día registrado' : ' días registrados') + ')</p>' : '';
+      return '<h2 class="hist-semana">' + titulo + ' <span class="sub">· ' + dias + (dias === 1 ? ' día' : ' días') + ' · ' + sem.sesiones.length + (sem.sesiones.length === 1 ? ' sesión' : ' sesiones') + '</span></h2>' + lineaAgua +
         sem.sesiones.map((s) => {
           // Series agrupadas por ejercicio, en el orden en que se hicieron
           const porEj = [];
@@ -532,6 +557,7 @@
             s.energia_1a5 ? 'energía ' + s.energia_1a5 + '/5' : '',
             s.esfuerzo_1a10 ? 'esfuerzo ' + s.esfuerzo_1a10 + '/10' : '',
             s.sueno_horas ? n(s.sueno_horas) + ' h de sueño' : '',
+            agua[s.fecha] ? '💧 ' + textoVasos(agua[s.fecha]) : '',
           ].filter(Boolean).join(' · ');
           return '<details class="tarjeta hist-sesion"><summary><span class="hist-fecha">' + fechaLarga(s.fecha) + '</span>' +
             '<span class="rutina-nombre">' + esc(nombreRutina(s.rutina_id)) + '</span>' +
@@ -599,6 +625,39 @@
     $('cfg-semana').value = datos ? (semanaPrograma(hoyTexto()) || '') : '';
     mostrar('pantalla-config');
   });
+
+  $('btn-deshacer-agua').addEventListener('click', () => deshacerAgua(hoyTexto()));
+  $('btn-agua-otro').addEventListener('click', () => {
+    const f = $('form-agua-otro');
+    f.hidden = !f.hidden;
+    if (!f.hidden) {
+      const ayer = new Date(Date.parse(hoyTexto() + 'T12:00:00Z') - 864e5).toISOString().slice(0, 10);
+      $('agua-fecha').max = hoyTexto();
+      if (!$('agua-fecha').value) $('agua-fecha').value = ayer;
+      $('agua-vasos-otro').focus();
+    }
+  });
+  $('agua-vasos-otro').addEventListener('input', (ev) => {
+    const n = num(ev.target.value);
+    $('agua-otro-ml').textContent = n > 0 ? '= ' + Math.round(n * vasoMl()) + ' ml' : '';
+  });
+  $('form-agua-otro').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const fecha = $('agua-fecha').value, vasos = num($('agua-vasos-otro').value);
+    if (!fecha || fecha > hoyTexto()) { aviso('Elegí una fecha que no sea futura'); return; }
+    if (!(vasos > 0 && vasos <= 20)) { aviso('Poné cuántos vasos (de 0,5 a 20)'); return; }
+    try {
+      const r = await enviar({ accion: 'agua', ml: Math.round(vasos * vasoMl()), fecha: fecha });
+      borrar(K.historial);
+      if (r) {
+        datos.hoy = hoyTexto(); datos.agua_hoy_ml = r.agua_hoy_ml; guardar(K.datos, datos); pintarAgua();
+        aviso('Guardado: ' + elDia(fecha, false) + ' suma ' + textoVasos(r.agua_dia_ml) + ' 💧');
+      } else { aviso('Sin conexión: se envía después'); pintarInicio(); }
+      $('agua-vasos-otro').value = ''; $('agua-otro-ml').textContent = '';
+      $('form-agua-otro').hidden = true;
+    } catch (err) { aviso('No se guardó: ' + err.message); }
+  });
+  $('btn-deshacer-otro').addEventListener('click', () => { if ($('agua-fecha').value) deshacerAgua($('agua-fecha').value); });
 
   $('btn-vaso').addEventListener('click', () => sumarAgua(Number(datos.config.vaso_ml) || 250));
   $('btn-botella').addEventListener('click', () => sumarAgua(Number(datos.config.botella_ml) || 500));

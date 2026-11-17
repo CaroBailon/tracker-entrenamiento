@@ -77,6 +77,14 @@ assert(r.ok && get({ token: T }).config.inicio_programa === '2026-10-05', 'inici
 post({ token: T, accion: 'config', clave: 'inicio_programa', valor: '2026-10-12' });
 assert(hojas.Config.datos.filter((f) => f[0] === 'inicio_programa').length === 1 && get({ token: T }).config.inicio_programa === '2026-10-12', 'cambiarlo de nuevo actualiza la misma fila');
 assert(post({ token: T, accion: 'config', clave: 'meta_agua_ml', valor: 5 }).ok === false, 'ajustes no editables se rechazan');
+r = post({ token: T, accion: 'agua', ml: 1500, fecha: '2026-11-10' });
+assert(r.ok && r.agua_dia_ml === 1500 && hojas.Agua.datos[hojas.Agua.datos.length - 1][2] === '', 'agua de un día pasado: se guarda con esa fecha y sin hora');
+post({ token: T, accion: 'agua', ml: 250, fecha: '2026-11-10' });
+r = post({ token: T, accion: 'deshacer_agua', fecha: '2026-11-10' });
+assert(r.ok && r.ml_borrados === 250 && r.agua_dia_ml === 1500, 'deshacer borra solo el último registro de ese día');
+assert(post({ token: T, accion: 'agua', ml: 250, fecha: '2099-01-01' }).ok === false, 'agua con fecha futura se rechaza');
+assert(post({ token: T, accion: 'deshacer_agua', fecha: '2026-01-01' }).ok === false, 'deshacer un día sin agua se rechaza');
+assert(get({ token: T, accion: 'historial', dias: 3650 }).agua['2026-11-10'] === 1500, 'el historial trae el agua por día');
 ctx.borrarRegistros();
 assert(hojas.Sesiones.datos.length === 1 && hojas.Series.datos.length === 1 && hojas.Agua.datos.length === 1, 'borrarRegistros deja solo los encabezados');
 assert(hojas.Ejercicios.datos.length === 20 && hojas.Rutinas.datos.length === 21, 'borrarRegistros no toca ejercicios ni rutinas');

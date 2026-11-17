@@ -27,6 +27,15 @@ try:
         pg.click('#btn-vaso'); pg.wait_for_timeout(400); pg.click('#btn-botella'); pg.wait_for_timeout(400)
         ok(pg.inner_text('#agua-vasos') == '3', 'agua: 250 + 500 = 3 vasos')
         ok(sum(f[3] for f in hojas()['Agua'][1:]) == 750, 'agua guardada en la planilla (750 ml)')
+        pg.click('#btn-deshacer-agua'); pg.wait_for_timeout(500)
+        ok(pg.inner_text('#agua-vasos') == '1' and sum(f[3] for f in hojas()['Agua'][1:]) == 250, 'deshacer borra la botella: queda 1 vaso')
+        pg.click('#btn-agua-otro'); pg.fill('#agua-fecha', '2026-11-03'); pg.fill('#agua-vasos-otro', '6')
+        ok('1500 ml' in pg.inner_text('#agua-otro-ml'), 'muestra los ml de los vasos')
+        pg.screenshot(path='../captura_agua.png')
+        pg.click('#form-agua-otro >> text=Guardar'); pg.wait_for_timeout(500)
+        ultima = hojas()['Agua'][-1]
+        ok(str(ultima[1]).startswith('2026-11-03') and ultima[3] == 1500 and ultima[2] == '', 'agua de otro día guardada con su fecha y sin hora')
+        ok(pg.inner_text('#agua-vasos') == '1', 'el agua de otro día no cambia la de hoy')
         # sesión de piernas 1
         pg.click('[data-rutina="piernas_1"]')
         ok(pg.locator('.ejercicio').count() == 6, 'piernas 1 muestra 6 ejercicios')
@@ -92,6 +101,7 @@ try:
         pg.click('#btn-historial'); pg.wait_for_timeout(800)
         txt = pg.inner_text('#hist-lista')
         ok('Semana 7' in txt and 'Semana 5' in txt and '2/11 al 8/11' in txt, 'historial numerado: semana 7 (esta) y semana 5 (2/11 al 8/11)')
+        ok('💧 promedio 6 vasos por día (1 día registrado)' in txt and '💧 6 vasos' in txt, 'historial muestra el agua: promedio semanal y del día de la sesión')
         pg.locator('.hist-sesion summary').first.click(); pg.wait_for_timeout(200)
         ok('der 8 kg × 9, 9 · izq 8 kg × 8, 8, 8' in pg.inner_text('.hist-sesion >> nth=0') and 'izq 8 kg × 8, 8, 8' in pg.inner_text('.hist-sesion >> nth=0'), 'historial muestra series por lado')
         pg.locator('.hist-sesion summary').nth(1).click(); pg.wait_for_timeout(200)
