@@ -12,7 +12,7 @@
   'use strict';
 
   const ZONA = 'America/Argentina/Buenos_Aires';
-  const K = { conf: 'tracker_conf', datos: 'tracker_datos', borrador: 'tracker_borrador', cola: 'tracker_pendientes', hoy: 'tracker_hoy' };
+  const K = { conf: 'tracker_conf', datos: 'tracker_datos', borrador: 'tracker_borrador', cola: 'tracker_pendientes', hoy: 'tracker_hoy', historial: 'tracker_historial' };
 
   // ---------------------------------------------------------------------------
   // Almacenamiento local (con try/catch: en modo privado puede fallar)
@@ -211,7 +211,7 @@
     const actual = leer(K.borrador, null);
     if (actual && actual.rutina_id !== rutinaId && !confirm('Tenés otra sesión sin terminar. ¿Descartarla y empezar esta?')) return;
     b = actual && actual.rutina_id === rutinaId ? actual : {
-      rutina_id: rutinaId, inicio: Date.now(), valores: {}, extras: {}, manual: {},
+      rutina_id: rutinaId, inicio: Date.now(), fecha: hoyTexto(), valores: {}, extras: {}, manual: {},
       energia: null, esfuerzo: null, sueno: hechoHoy().sueno, duracion: null, notas: '',
     };
     guardar(K.borrador, b);
@@ -236,7 +236,10 @@
   function pintarSesion() {
     const r = rutina(b.rutina_id);
     $('sesion-titulo').textContent = r.nombre;
-    $('sesion-inicio').textContent = 'Empezaste a las ' + horaTexto(b.inicio);
+    if (!b.fecha) b.fecha = new Date(b.inicio).toLocaleDateString('en-CA', { timeZone: ZONA });
+    $('in-fecha').value = b.fecha;
+    $('in-fecha').max = hoyTexto();
+    $('sesion-inicio').textContent = b.fecha === hoyTexto() ? 'Empezaste a las ' + horaTexto(b.inicio) : 'Cargando una sesión pasada';
 
     $('sesion-ejercicios').innerHTML = r.items.map((item) => {
       const ej = ejercicio(item.ejercicio_id);
@@ -378,13 +381,16 @@
     const series = seriesParaEnviar();
     const err = $('sesion-error');
     if (!series.length) { err.textContent = 'Cargá al menos una serie (las reps o los minutos).'; return; }
+    if (!b.fecha || b.fecha > hoyTexto()) { err.textContent = 'Revisá la fecha: no puede ser futura.'; return; }
     if (!b.energia || !b.esfuerzo) { err.textContent = 'Marcá tu energía y tu esfuerzo: son los datos de "cómo me siento".'; return; }
     const r = rutina(b.rutina_id);
-    const duracionAuto = r.tipo === 'fuerza' ? minutosDesdeInicio() : series.reduce((s, x) => s + (x.minutos || 0), 0);
+    const esHoy = b.fecha === hoyTexto();
+    // En una sesión pasada el cronómetro no sirve: la duración queda vacía si no se carga a mano
+    const duracionAuto = r.tipo !== 'fuerza' ? series.reduce((s, x) => s + (x.minutos || 0), 0) : esHoy ? minutosDesdeInicio() : '';
     const cuerpo = {
       accion: 'sesion',
       sesion: {
-        fecha: new Date(b.inicio).toLocaleDateString('en-CA', { timeZone: ZONA }), // el día en que empezó, aunque se envíe después
+        fecha: b.fecha, // el día del entrenamiento, aunque se envíe después
         rutina_id: b.rutina_id,
         duracion_min: num(b.duracion) ?? duracionAuto,
         energia_1a5: b.energia,
@@ -398,10 +404,12 @@
     boton.disabled = true; boton.textContent = 'Guardando…';
     try {
       const resp = await enviar(cuerpo);
-      const h = hechoHoy();
-      if (!h.rutinas.includes(b.rutina_id)) h.rutinas.push(b.rutina_id);
-      if (num(b.sueno) != null) h.sueno = num(b.sueno);
-      guardar(K.hoy, h);
+      if (esHoy) {
+        const h = hechoHoy();
+        if (!h.rutinas.includes(b.rutina_id)) h.rutinas.push(b.rutina_id);
+        if (num(b.sueno) != null) h.sueno = num(b.sueno);
+        guardar(K.hoy, h);
+      }
       borrar(K.borrador); b = null;
       aviso(resp ? 'Sesión guardada ✓ (' + resp.series_guardadas + ' series)' : 'Sin conexión: la sesión quedó en el celular y se envía después');
       mostrar('pantalla-inicio');
@@ -412,6 +420,95 @@
     } finally {
       boton.disabled = false; boton.textContent = 'Guardar sesión';
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pantalla de historial
+  // ---------------------------------------------------------------------------
+  async function abrirHistorial() {
+    mostrar('pantalla-historial');
+    const cache = leer(K.historial, null);
+    if (cache) pintarHistorial(cache.sesiones);
+    $('hist-estado').textContent = 'Actualizando…';
+    try {
+      await vaciarCola(); // así aparece también lo que se cargó sin conexión
+      const r = await fetch(conf.url + '?accion=historial&dias=90&token=' + encodeURIComponent(conf.token));
+      const j = await r.json();
+      if (!j.ok) throw new ErrorServidor(j.error);
+      guardar(K.historial, j);
+      pintarHistorial(j.sesiones);
+      $('hist-estado').textContent = '';
+    } catch (err) {
+      $('hist-estado').textContent = err instanceof ErrorServidor ? 'Error: ' + err.message : 'Sin conexión: mostrando lo último guardado';
+    }
+  }
+
+  // Lunes de la semana de una fecha yyyy-mm-dd
+  function lunes(f) {
+    const d = new Date(f + 'T12:00:00Z');
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    return d.toISOString().slice(0, 10);
+  }
+
+  function pintarHistorial(sesiones) {
+    if (!sesiones.length) { $('hist-lista').innerHTML = '<p class="sub">Todavía no hay sesiones cargadas.</p>'; return; }
+    const nombreRutina = (id) => { const r = rutina(id); return r ? r.nombre : id; };
+    const fechaLarga = (f) => new Date(f + 'T12:00:00Z').toLocaleDateString('es-AR', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long' });
+    const corta = (f) => new Date(f + 'T12:00:00Z').toLocaleDateString('es-AR', { timeZone: 'UTC', day: 'numeric', month: 'numeric' });
+    const n = (v) => String(v).replace('.', ',');
+
+    // Agrupa por semana (de lunes a domingo)
+    const semanas = [];
+    sesiones.forEach((s) => {
+      const l = lunes(s.fecha);
+      let sem = semanas[semanas.length - 1];
+      if (!sem || sem.lunes !== l) semanas.push(sem = { lunes: l, sesiones: [] });
+      sem.sesiones.push(s);
+    });
+
+    $('hist-lista').innerHTML = semanas.map((sem) => {
+      const dias = new Set(sem.sesiones.map((s) => s.fecha)).size;
+      const fin = new Date(sem.lunes + 'T12:00:00Z'); fin.setUTCDate(fin.getUTCDate() + 6);
+      const titulo = sem.lunes === lunes(hoyTexto()) ? 'Esta semana' : 'Semana del ' + corta(sem.lunes) + ' al ' + corta(fin.toISOString().slice(0, 10));
+      return '<h2 class="hist-semana">' + titulo + ' <span class="sub">· ' + dias + (dias === 1 ? ' día' : ' días') + ' · ' + sem.sesiones.length + (sem.sesiones.length === 1 ? ' sesión' : ' sesiones') + '</span></h2>' +
+        sem.sesiones.map((s) => {
+          // Series agrupadas por ejercicio, en el orden en que se hicieron
+          const porEj = [];
+          s.series.forEach((x) => {
+            let g = porEj.find((e) => e.id === x.ejercicio_id);
+            if (!g) porEj.push(g = { id: x.ejercicio_id, series: [] });
+            g.series.push(x);
+          });
+          const lineas = porEj.map((g) => {
+            const ej = ejercicio(g.id) || { nombre: g.id, tipo_medida: 'peso_reps' };
+            const texto = (lista) => {
+              if (ej.tipo_medida === 'tiempo') return lista.map((x) => x.minutos + ' min' + (x.distancia_km ? ' · ' + n(x.distancia_km) + ' km' : '')).join(', ');
+              if (ej.tipo_medida === 'reps') return lista.map((x) => x.reps).join(', ') + ' reps';
+              // "8 kg × 10, 10, 9" (si cambia el peso entre series, se muestra cada uno)
+              const pesos = new Set(lista.map((x) => x.peso_kg));
+              return pesos.size === 1
+                ? n(lista[0].peso_kg) + ' kg × ' + lista.map((x) => x.reps).join(', ')
+                : lista.map((x) => n(x.peso_kg) + '×' + x.reps).join(', ');
+            };
+            const lados = ['D', 'I'].map((l) => g.series.filter((x) => x.lado === l));
+            const detalle = lados[0].length || lados[1].length
+              ? lados.map((lista, i) => lista.length ? (i ? 'izq ' : 'der ') + texto(lista) : '').filter(Boolean).join(' · ')
+              : texto(g.series);
+            return '<li><b>' + esc(ej.nombre) + '</b><br><span class="sub">' + detalle + '</span></li>';
+          }).join('');
+          const datosSesion = [
+            s.duracion_min ? s.duracion_min + ' min' : '',
+            s.energia_1a5 ? 'energía ' + s.energia_1a5 + '/5' : '',
+            s.esfuerzo_1a10 ? 'esfuerzo ' + s.esfuerzo_1a10 + '/10' : '',
+            s.sueno_horas ? n(s.sueno_horas) + ' h de sueño' : '',
+          ].filter(Boolean).join(' · ');
+          return '<details class="tarjeta hist-sesion"><summary><span class="hist-fecha">' + fechaLarga(s.fecha) + '</span>' +
+            '<span class="rutina-nombre">' + esc(nombreRutina(s.rutina_id)) + '</span>' +
+            '<span class="sub">' + datosSesion + '</span></summary>' +
+            '<ul class="hist-series">' + lineas + '</ul>' +
+            (s.notas ? '<p class="sub">📝 ' + esc(s.notas) + '</p>' : '') + '</details>';
+        }).join('');
+    }).join('');
   }
 
   // ---------------------------------------------------------------------------
@@ -472,25 +569,37 @@
     b.manual = b.manual || {};
     b.manual[i.dataset.k + '|' + campo] = true;
     // Lo escrito se copia a las series siguientes que todavía no se tocaron a mano.
-    // El peso va a todas; las reps de un ejercicio a una pierna, solo al mismo lado (un lado puede rendir menos).
-    if (campo === 'peso_kg' || campo === 'reps') {
+    // En un ejercicio a una pierna, lo del lado derecho se copia a los dos lados; si el izquierdo rinde distinto,
+    // se corrige y desde ahí se copia solo a las series izquierdas.
+    // Borrar no se copia: sirve para sacar una serie que no se hizo sin tocar las demás
+    if ((campo === 'peso_kg' || campo === 'reps') && i.value !== '') {
       const lado = i.dataset.k.split('|')[2];
       const todos = Array.from(i.closest('.ejercicio').querySelectorAll('input[data-campo="' + campo + '"]'));
       todos.slice(todos.indexOf(i) + 1).forEach((otro) => {
         const k = otro.dataset.k;
         if (b.manual[k + '|' + campo]) return;
-        if (campo === 'reps' && k.split('|')[2] !== lado) return;
+        if (lado === 'I' && k.split('|')[2] !== 'I') return;
         otro.value = i.value;
         b.valores[k] = Object.assign(b.valores[k] || {}, { [campo]: i.value });
       });
     }
     guardar(K.borrador, b);
   });
+  $('in-fecha').addEventListener('change', (ev) => { b.fecha = ev.target.value; guardar(K.borrador, b); pintarSesion(); });
   [['in-sueno', 'sueno'], ['in-duracion', 'duracion'], ['in-notas', 'notas']].forEach(([id, campo]) => {
     $(id).addEventListener('input', (ev) => { b[campo] = ev.target.value; guardar(K.borrador, b); });
   });
 
   $('btn-guardar').addEventListener('click', guardarSesion);
+  $('btn-historial').addEventListener('click', abrirHistorial);
+  $('hist-volver').addEventListener('click', () => { mostrar('pantalla-inicio'); pintarInicio(); });
+  $('cfg-borrar-local').addEventListener('click', () => {
+    if (!confirm('¿Borrar lo guardado en este celular (sesión sin terminar, pendientes, historial y marcas de hoy)? La URL y la clave se mantienen. Lo que ya está en la planilla no se toca.')) return;
+    [K.borrador, K.cola, K.hoy, K.historial].forEach(borrar);
+    b = null;
+    aviso('Listo: el celular quedó limpio');
+    actualizarDatos().then(() => { mostrar('pantalla-inicio'); pintarInicio(); });
+  });
   $('btn-salir-sesion').addEventListener('click', () => { mostrar('pantalla-inicio'); pintarInicio(); }); // el borrador queda guardado
   $('btn-descartar').addEventListener('click', () => {
     if (!confirm('¿Descartar esta sesión? Se borra lo que cargaste.')) return;

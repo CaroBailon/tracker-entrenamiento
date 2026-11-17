@@ -55,3 +55,13 @@ const fila = hojas.Rutinas.datos.find((f) => f[0] === 'piernas_1' && f[4] === 'h
 assert(r.ok && fila[6] === 10 && fila[5] === 3, 'objetivo de hip thrust cambiado a 3 × 10');
 assert(post({ token: T, accion: 'objetivo', rutina_id: 'piernas_1', ejercicio_id: 'hip_thrust_1p', reps_objetivo: 500 }).ok === false, 'objetivo fuera de rango se rechaza');
 assert(post({ token: T, accion: 'objetivo', rutina_id: 'superior', ejercicio_id: 'hip_thrust_1p', reps_objetivo: 10 }).ok === false, 'ejercicio que no está en la rutina se rechaza');
+
+post({ token: T, accion: 'sesion', sesion: { fecha: '2026-11-05', rutina_id: 'superior', energia_1a5: 3 }, series: [{ ejercicio_id: 'press_pecho', serie_n: 1, reps: 11, peso_kg: 6 }] });
+r = get({ token: T, accion: 'historial', dias: 3650 });
+assert(r.ok && r.sesiones.length === 3, 'historial devuelve las 3 sesiones');
+assert(r.sesiones[2].fecha === '2026-11-05' && r.sesiones[2].series[0].peso_kg === 6, 'sesión cargada con fecha pasada, ordenada al final');
+assert(r.sesiones[0].sesion_id === 2 && r.sesiones[1].series.length === 4, 'mismo día: la más nueva primero; series agrupadas por sesión');
+assert(get({ token: T }).ultimas['press_pecho'].peso_kg === 6, 'una sesión vieja igual cuenta como última marca si no hay otra');
+ctx.borrarRegistros();
+assert(hojas.Sesiones.datos.length === 1 && hojas.Series.datos.length === 1 && hojas.Agua.datos.length === 1, 'borrarRegistros deja solo los encabezados');
+assert(hojas.Ejercicios.datos.length === 20 && hojas.Rutinas.datos.length === 21, 'borrarRegistros no toca ejercicios ni rutinas');

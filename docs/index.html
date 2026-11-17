@@ -28,6 +28,7 @@
       <button type="submit" class="btn btn-principal">Probar y guardar</button>
     </form>
     <p id="cfg-estado" class="estado" role="status"></p>
+    <button id="cfg-borrar-local" class="btn btn-link btn-peligro" type="button">Borrar datos guardados en este celular</button>
     <button id="cfg-volver" class="btn btn-link" type="button" hidden>← Volver</button>
   </main>
 
@@ -52,6 +53,8 @@
       </div>
     </section>
 
+    <button id="btn-historial" class="btn btn-secundario" type="button">📅 Ver mis entrenamientos</button>
+
     <section aria-labelledby="titulo-rutinas">
       <h2 id="titulo-rutinas">¿Qué entrenás hoy?</h2>
       <div id="lista-rutinas" class="lista-rutinas"></div>
@@ -69,6 +72,9 @@
       <button id="btn-salir-sesion" class="btn btn-link" type="button">← Inicio</button>
       <h1 id="sesion-titulo"></h1>
       <p id="sesion-inicio" class="sub"></p>
+      <label class="fecha-sesion">Fecha del entrenamiento
+        <input id="in-fecha" type="date">
+      </label>
     </header>
     <p class="ayuda chica">Lo que escribís en una serie se copia a las siguientes. Si hiciste menos series, borrá las reps de la que no hiciste.</p>
     <div id="sesion-ejercicios"></div>
@@ -95,6 +101,17 @@
     <p id="sesion-error" class="error" role="alert"></p>
     <button id="btn-guardar" class="btn btn-principal" type="button">Guardar sesión</button>
     <button id="btn-descartar" class="btn btn-link btn-peligro" type="button">Descartar sesión</button>
+  </main>
+
+  <!-- Pantalla 4: historial -->
+  <main id="pantalla-historial" class="pantalla" hidden>
+    <header class="encabezado">
+      <button id="hist-volver" class="btn btn-link" type="button">← Inicio</button>
+      <h1>Mis entrenamientos</h1>
+      <p class="sub">Últimos 90 días. Tocá una sesión para ver las series.</p>
+      <p id="hist-estado" class="sub" role="status"></p>
+    </header>
+    <div id="hist-lista"></div>
   </main>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

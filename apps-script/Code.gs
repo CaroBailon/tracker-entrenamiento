@@ -115,12 +115,17 @@ function cargarSiVacia_(hoja, filas) {
 // 2. API web
 // ---------------------------------------------------------------------------
 
-/** GET ?token=...&accion=inicio → catálogo, rutinas, configuración, agua de hoy y últimas marcas. */
+/**
+ * GET ?token=...&accion=inicio    → catálogo, rutinas, configuración, agua de hoy y últimas marcas.
+ * GET ?token=...&accion=historial → sesiones de los últimos 90 días con sus series.
+ */
 function doGet(e) {
   try {
     validarToken_(e.parameter.token);
-    if ((e.parameter.accion || 'inicio') !== 'inicio') throw new Error('Acción desconocida');
+    const accion = e.parameter.accion || 'inicio';
     const zona = valorConfig_('zona_horaria');
+    if (accion === 'historial') return json_(historial_(zona, Number(e.parameter.dias) || 90));
+    if (accion !== 'inicio') throw new Error('Acción desconocida');
     const hoy = Utilities.formatDate(new Date(), zona, 'yyyy-MM-dd');
     return json_({
       ok: true,
@@ -216,6 +221,39 @@ function guardarSesion_(cuerpo, zona) {
     h.getRange(h.getLastRow() + 1, 1, filas.length, filas[0].length).setValues(filas);
   }
   return { ok: true, sesion_id: sesionId, series_guardadas: filas.length };
+}
+
+// Historial: cada sesión con sus series, de la más reciente a la más vieja
+function historial_(zona, dias) {
+  const desde = Utilities.formatDate(new Date(Date.now() - dias * 864e5), zona, 'yyyy-MM-dd');
+  const porSesion = {};
+  leerTabla_('Series').forEach(function (x) {
+    (porSesion[x.sesion_id] = porSesion[x.sesion_id] || []).push({
+      ejercicio_id: x.ejercicio_id, serie_n: x.serie_n, lado: x.lado,
+      reps: x.reps, peso_kg: x.peso_kg, minutos: x.minutos, distancia_km: x.distancia_km,
+    });
+  });
+  const sesiones = leerTabla_('Sesiones')
+    .map(function (s) {
+      return {
+        sesion_id: s.sesion_id, fecha: fechaTexto_(s.fecha, zona), rutina_id: s.rutina_id,
+        duracion_min: s.duracion_min, energia_1a5: s.energia_1a5, esfuerzo_1a10: s.esfuerzo_1a10,
+        sueno_horas: s.sueno_horas, notas: s.notas, series: porSesion[s.sesion_id] || [],
+      };
+    })
+    .filter(function (s) { return s.fecha >= desde; })
+    .sort(function (a, b) { return a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : b.sesion_id - a.sesion_id; });
+  return { ok: true, sesiones: sesiones };
+}
+
+// Para empezar de cero: borra sesiones, series y agua. NO toca ejercicios, rutinas ni configuración.
+// Ejecutar a mano desde el editor (elegir "borrarRegistros" y ▶ Ejecutar).
+function borrarRegistros() {
+  ['Sesiones', 'Series', 'Agua'].forEach(function (nombre) {
+    const h = hoja_(nombre);
+    if (h.getLastRow() > 1) h.deleteRows(2, h.getLastRow() - 1);
+  });
+  Logger.log('Listo: se borraron las sesiones, las series y el agua.');
 }
 
 // Cambia el objetivo de un ejercicio dentro de una rutina (por ejemplo, pasar de 3 × 9 a 3 × 10 en la semana 7)

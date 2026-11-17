@@ -7,6 +7,7 @@ function crearHoja(nombre) {
   const h = {
     nombre, datos,
     getLastRow: () => datos.length,
+    deleteRows: (desde, n) => datos.splice(desde - 1, n),
     appendRow: (f) => datos.push(f.map(aFecha)),
     setFrozenRows: () => {}, 
     getRange: (r, c, nr, nc) => ({
